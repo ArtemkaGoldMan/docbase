@@ -1,0 +1,11 @@
+# The knowledge base is the user's content, never the tool's.
+kb/
+docbase.json
+
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+build/
+dist/
+*.egg-info/

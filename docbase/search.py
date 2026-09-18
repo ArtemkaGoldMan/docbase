@@ -1,0 +1,200 @@
+"""Retrieval over the converted corpus.
+
+Returns relevant fragments rather than whole documents: a single imported page
+routinely costs 20k tokens, which no agent should spend to answer one question.
+
+How ranking works:
+
+* documents are split by heading, then into ~400-character fragments at
+  sentence boundaries (converted exports often put a whole page on one line,
+  so splitting by line is useless);
+* every word is reduced to a stem (a fixed-length prefix, crude but effective
+  for inflected languages);
+* stems are weighted by IDF, so words that appear in every fragment — "client",
+  "order", "page" — stop drowning out the ones that actually pick out a topic;
+* a match in a heading counts double, and a short focused fragment beats a
+  long diffuse one with the same hits.
+
+The score is normalised against the query, so it reads as a confidence: real
+topics land above 1.0, absent ones below 0.9.
+"""
+from __future__ import annotations
+
+import math
+import os
+import re
+
+from . import config as config_module
+
+RE_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+RE_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+RE_SENTENCE = re.compile(r"(?<=[.!?:])\s+|(?=[•▪✅❌⛔⚠])")
+
+
+def stem(word, length):
+    word = word.lower().strip("«»\"'.,:;!?()[]–—-")
+    return word[:length] if len(word) > length else word
+
+
+def clean(line):
+    """Strip markdown noise so both matching and output stay readable."""
+    line = RE_LINK.sub(r"\1", line)
+    return re.sub(r"\*{1,3}|`", "", line)
+
+
+def split_chunks(text, chunk_chars):
+    """A long paragraph -> sentence-aligned fragments of about chunk_chars."""
+    parts, current = [], ""
+    for piece in RE_SENTENCE.split(text):
+        if not piece:
+            continue
+        if len(current) + len(piece) > chunk_chars and current:
+            parts.append(current.strip())
+            current = ""
+        current += piece + " "
+    if current.strip():
+        parts.append(current.strip())
+    return parts
+
+
+def sections(path, chunk_chars):
+    """Document -> [(line number, heading, fragment)]."""
+    lines = open(path, encoding="utf-8").read().splitlines()
+    out, heading, buf, start = [], "", [], 1
+
+    def flush():
+        if not buf:
+            if heading:                 # a heading with no body is still findable
+                out.append((start, heading, heading))
+            return
+        offsets, position = [], start
+        for line in buf:
+            if line.strip():
+                offsets.append((position, line))
+            position += 1
+        body = " ".join(line for _, line in offsets)
+        consumed = 0
+        for chunk in split_chunks(body, chunk_chars):
+            line_no, seen = start, 0
+            for position, line in offsets:
+                if seen + len(line) + 1 > consumed:
+                    line_no = position
+                    break
+                seen += len(line) + 1
+            out.append((line_no, heading, chunk))
+            consumed += len(chunk) + 1
+
+    for number, raw in enumerate(lines, 1):
+        match = RE_HEADING.match(raw)
+        if match:
+            flush()
+            heading, buf, start = clean(match.group(2))[:120], [], number
+        else:
+            if not buf:
+                start = number
+            buf.append(raw)
+    flush()
+    return out
+
+
+class Index:
+    """Fragments plus IDF weights, rebuilt only when a file changes."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self._key = None
+        self.chunks = []
+        self.idf = {}
+
+    # -- corpus discovery -------------------------------------------------
+    def files(self):
+        """Documents plus image descriptions.
+
+        Descriptions are first-class members of the base: they carry rules
+        that exist only inside screenshots and nowhere in the text.
+        """
+        layout = self.cfg.layout
+        out = []
+        text_dir = layout.path("text")
+        if os.path.isdir(text_dir):
+            for name in sorted(os.listdir(text_dir)):
+                if name.endswith(".md") and not name.startswith("_"):
+                    out.append((name, os.path.join(text_dir, name)))
+        assets_dir = layout.path("assets")
+        if os.path.isdir(assets_dir):
+            for topic in sorted(os.listdir(assets_dir)):
+                path = os.path.join(assets_dir, topic, "descriptions.md")
+                if os.path.isfile(path):
+                    out.append((f"assets/{topic}/descriptions.md", path))
+        return out
+
+    # -- indexing ---------------------------------------------------------
+    def stems(self, text):
+        length = self.cfg.search.stem_length
+        stops = self.cfg.stopwords
+        return {stem(w, length)
+                for w in re.findall(r"[\w'’-]+", text, re.UNICODE)
+                if w.lower() not in stops and len(w) > 1}
+
+    def build(self):
+        files = self.files()
+        key = tuple((name, os.path.getmtime(path)) for name, path in files)
+        if self._key == key:
+            return self
+        chunks, frequency = [], {}
+        for name, path in files:
+            for line_no, heading, body in sections(path, self.cfg.search.chunk_chars):
+                body_stems = self.stems(body)
+                head_stems = self.stems(heading)
+                chunks.append((name, line_no, heading, body, body_stems, head_stems))
+                for token in body_stems | head_stems:
+                    frequency[token] = frequency.get(token, 0) + 1
+        total = max(len(chunks), 1)
+        self.chunks = chunks
+        self.idf = {t: math.log(1 + total / c) for t, c in frequency.items()}
+        self._key = key
+        return self
+
+    # -- querying ---------------------------------------------------------
+    def search(self, query, limit=None):
+        self.build()
+        limit = limit or self.cfg.search.default_hits
+        wanted = self.stems(query)
+        if not wanted or not self.chunks:
+            return []
+
+        unknown = math.log(1 + len(self.chunks))
+        budget = sum(self.idf.get(w, unknown) for w in wanted) or 1.0
+        settings = self.cfg.search
+
+        hits = []
+        for name, line_no, heading, body, body_stems, head_stems in self.chunks:
+            in_body = wanted & body_stems
+            in_head = wanted & head_stems
+            if not in_body and not in_head:
+                continue
+            gained = (sum(self.idf.get(w, 0) for w in in_body)
+                      + settings.heading_weight * sum(self.idf.get(w, 0) for w in in_head))
+            coverage = gained / budget
+            density = len(in_body) / max(len(body_stems), 1)
+            hits.append((coverage + settings.density_weight * density,
+                         name, line_no, heading, body))
+        hits.sort(key=lambda hit: (-hit[0], hit[1], hit[2]))
+        return hits[:limit]
+
+    def headings(self, name):
+        path = dict(self.files()).get(name)
+        if not path:
+            return []
+        out = []
+        for number, raw in enumerate(open(path, encoding="utf-8"), 1):
+            match = RE_HEADING.match(raw)
+            if match and len(match.group(1)) <= 3:
+                heading = clean(match.group(2)).strip()
+                if heading and len(heading) < 90:
+                    out.append((number, heading))
+        return out
+
+
+def index_for(cfg=None):
+    return Index(cfg or config_module.load())

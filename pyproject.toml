@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docbase"
+version = "0.1.0"
+description = "Turn exported documentation into a knowledge base an AI agent can actually use"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+keywords = ["documentation", "confluence", "rag", "retrieval", "ai-agents"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Text Processing :: Markup",
+]
+dependencies = [
+  "pypdf>=4",
+  "pdfplumber>=0.11",
+  "beautifulsoup4>=4.12",
+]
+
+[project.scripts]
+docbase = "docbase.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/artemomelchenko/docbase"
+
+[tool.setuptools.packages.find]
+include = ["docbase*"]
