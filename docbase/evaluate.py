@@ -84,23 +84,53 @@ def generate(cfg=None, count=20):
 
     existing = _load(cfg)
     handwritten = [c for c in existing if c.get("origin") != "generated"]
+
+    if not cases:
+        # Silence here would mean the whole evaluation quietly stops existing.
+        print(f"Could not build any cases from {len(index.chunks)} fragments.")
+        print("Every candidate was rejected: too short, too few distinctive "
+              "words, or no phrase that avoids the query terms.")
+        print("The corpus may be very repetitive, or mostly tables. "
+              "Write a few cases by hand in " + EVAL_NAME + " instead.")
+        return 1
+
     _save(cfg, handwritten + cases)
     print(f"Wrote {len(cases)} generated cases "
           f"({len(handwritten)} hand-written kept) to {EVAL_NAME}")
+    if len(cases) < count:
+        print(f"Asked for {count}; the corpus yielded {len(cases)} usable ones.")
     print("Review them: a good case reads like a real question, not keywords.")
     return 0
 
 
 def _pick_marker(body, query_words):
-    """A literal phrase from the passage that avoids the query words."""
-    for sentence in re.split(r"(?<=[.!?])\s+", body):
-        sentence = sentence.strip()
-        if not 25 <= len(sentence) <= 120:
-            continue
-        lowered = sentence.lower()
-        if sum(1 for word in query_words if word in lowered) <= 1:
-            return sentence
-    return ""
+    """A literal phrase from the passage that mostly avoids the query words.
+
+    Sentences are tried first because they read well in a test file. Long-form
+    documentation often has none that fit — a regulation paragraph can be a
+    single 400-character sentence — so a plain character window is the
+    fallback. Without it, generation silently produced nothing on exactly the
+    corpora it matters for.
+    """
+    candidates = [s.strip() for s in re.split(r"(?<=[.!?])\s+", body)]
+    candidates = [s for s in candidates if 25 <= len(s) <= 200]
+
+    if not candidates:
+        # Slide a window across the passage instead of giving up.
+        width = 90
+        candidates = [body[start:start + width].strip()
+                      for start in range(0, max(len(body) - width, 1), width // 2)]
+        candidates = [c for c in candidates if len(c) >= 40]
+
+    best, best_overlap = "", 99
+    for candidate in candidates:
+        lowered = candidate.lower()
+        overlap = sum(1 for word in query_words if word in lowered)
+        if overlap < best_overlap:
+            best, best_overlap = candidate, overlap
+        if overlap == 0:
+            break
+    return best if best_overlap <= 2 else ""
 
 
 def _load(cfg):

@@ -148,10 +148,30 @@ costs about 0.1 s and prints nothing when nothing changed.
 python -m unittest discover tests
 ```
 
-Twenty regression tests, each one a failure that actually happened: a document
-silently overwritten by another with a similar title, one broken file aborting
-the whole import, an asset folder deleted along with hand-written notes, a
-half-written manifest from two concurrent runs.
+Twenty-eight regression tests, each one a failure that actually happened: a
+document silently overwritten by another with a similar title, one broken file
+aborting the whole import, an asset folder deleted along with hand-written
+notes, a half-written manifest from two concurrent runs.
+
+Five of them guard behaviour that only breaks at scale — an idle run must not
+checksum every original, must not rewrite unchanged documents, and must serve
+the index from cache — because each of those was invisible at ten documents
+and crippling at two hundred. Three more guard the evaluation itself, which
+once produced zero cases on long-sentence documents and reported success.
+
+### Measured on 200 documents (1.2 MB of markdown, 3600 fragments)
+
+| | |
+|---|---|
+| first import | 1.1 s |
+| idle run (the pre-turn hook) | 0.14 s |
+| index build, cold | 165 ms |
+| index load, cached | 14 ms |
+| search | 5 ms |
+| memory | 43 MB |
+
+The index is cached on disk because every CLI call is a new process; without
+it, each search re-parsed the whole corpus.
 
 ## Limits
 

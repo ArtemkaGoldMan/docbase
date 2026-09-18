@@ -278,3 +278,128 @@ class TestSearch(BaseCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestScaling(BaseCase):
+    """Guards against the failure mode that only shows up on a big corpus.
+
+    Both regressions here were real: an idle run once checksummed every
+    original (70 seconds on 30 documents), and the index was rebuilt from
+    scratch on every single search.
+    """
+
+    def _load_many(self, count=12):
+        for i in range(count):
+            self.drop(f"doc-{i}.html", page(
+                100 + i, f"Handbook {i}",
+                f"Section {i} covers approval thresholds and escalation paths. "
+                f"Rule {i} applies whenever the quarterly budget is exceeded."))
+        self.sync(quiet=True)
+
+    def test_idle_run_does_not_checksum_the_originals(self):
+        self._load_many()
+        calls = []
+        original = sync_module.fingerprint
+
+        def counting(path):
+            calls.append(path)
+            return original(path)
+
+        sync_module.fingerprint = counting
+        try:
+            self.sync(quiet=True)
+        finally:
+            sync_module.fingerprint = original
+        self.assertEqual(calls, [],
+                         "an idle run read file contents; this is what made "
+                         "the pre-turn hook take a minute on a real corpus")
+
+    def test_idle_run_does_not_rewrite_documents(self):
+        self._load_many()
+        text_dir = self.cfg.layout.path("text")
+        before = {f: os.path.getmtime(os.path.join(text_dir, f))
+                  for f in os.listdir(text_dir)}
+        self.sync(quiet=True)
+        after = {f: os.path.getmtime(os.path.join(text_dir, f))
+                 for f in os.listdir(text_dir)}
+        self.assertEqual(before, after,
+                         "documents were rewritten with no change, which also "
+                         "invalidates the search index every turn")
+
+    def test_index_is_served_from_cache_on_the_next_process(self):
+        self._load_many()
+        first = Index(self.cfg).build()
+        self.assertFalse(first.loaded_from_cache)
+        second = Index(self.cfg).build()          # a fresh object, as a new CLI call
+        self.assertTrue(second.loaded_from_cache)
+        self.assertEqual(len(first.chunks), len(second.chunks))
+        self.assertEqual([h[1:3] for h in first.search("approval escalation")],
+                         [h[1:3] for h in second.search("approval escalation")])
+
+    def test_cache_is_invalidated_when_a_document_changes(self):
+        self._load_many()
+        Index(self.cfg).build()
+        self.drop("doc-0-v2.html", page(100, "Handbook 0", "Entirely new wording."))
+        self.sync(quiet=True)
+        rebuilt = Index(self.cfg).build()
+        self.assertFalse(rebuilt.loaded_from_cache)
+
+    def test_damaged_cache_falls_back_to_rebuilding(self):
+        self._load_many()
+        index = Index(self.cfg).build()
+        with open(index.cache_path(), "w", encoding="utf-8") as handle:
+            handle.write("{ not json")
+        recovered = Index(self.cfg).build()
+        self.assertFalse(recovered.loaded_from_cache)
+        self.assertTrue(recovered.search("approval escalation"))
+
+
+class TestEvaluation(BaseCase):
+    """The evaluation must not quietly stop existing.
+
+    Case generation once produced zero cases on documents whose paragraphs are
+    a single long sentence — which is most regulations — and then reported
+    success. The tests were gone and nothing said so.
+    """
+
+    def _load_long_sentences(self):
+        for i in range(6):
+            sentence = (f"Section {i} states that reimbursement of travel "
+                        f"expenses incurred during quarterly audits requires "
+                        f"written approval from the department head before the "
+                        f"invoice number {i} is submitted to the finance portal "
+                        f"together with supporting documentation and receipts")
+            self.drop(f"doc-{i}.html", page(300 + i, f"Audit policy {i}", sentence))
+        self.sync(quiet=True)
+
+    def test_cases_are_generated_from_long_sentence_documents(self):
+        from docbase import evaluate
+        self._load_long_sentences()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = evaluate.generate(self.cfg, count=5)
+        self.assertEqual(code, 0, f"generation failed: {output.getvalue()}")
+
+        cases = json.load(open(os.path.join(self.root, "kb", "eval.json"),
+                               encoding="utf-8"))
+        self.assertTrue(cases, "no cases were produced")
+        for case in cases:
+            self.assertTrue(case["marker"].strip())
+            self.assertTrue(case["question"].strip())
+
+    def test_generated_markers_really_occur_in_their_file(self):
+        from docbase import evaluate
+        self._load_long_sentences()
+        with contextlib.redirect_stdout(io.StringIO()):
+            evaluate.generate(self.cfg, count=5)
+        cases = json.load(open(os.path.join(self.root, "kb", "eval.json"),
+                               encoding="utf-8"))
+        for case in cases:
+            self.assertTrue(
+                evaluate._marker_present(self.cfg, case["marker"], case["file"]),
+                f"marker not found in {case['file']}: {case['marker'][:60]}")
+
+    def test_empty_corpus_reports_failure_instead_of_success(self):
+        from docbase import evaluate
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = evaluate.generate(self.cfg, count=5)
+        self.assertEqual(code, 1)

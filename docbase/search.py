@@ -20,6 +20,7 @@ topics land above 1.0, absent ones below 0.9.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -97,14 +98,23 @@ def sections(path, chunk_chars):
     return out
 
 
+CACHE_NAME = ".index.json"
+
+
 class Index:
-    """Fragments plus IDF weights, rebuilt only when a file changes."""
+    """Fragments plus IDF weights, rebuilt only when a file changes.
+
+    The index is also cached on disk. Every CLI call is a fresh process, so
+    without it each search would re-parse the whole corpus — which stays
+    invisible at ten documents and dominates at a thousand.
+    """
 
     def __init__(self, cfg):
         self.cfg = cfg
         self._key = None
         self.chunks = []
         self.idf = {}
+        self.loaded_from_cache = False
 
     # -- corpus discovery -------------------------------------------------
     def files(self):
@@ -128,7 +138,6 @@ class Index:
                     out.append((f"assets/{topic}/descriptions.md", path))
         return out
 
-    # -- indexing ---------------------------------------------------------
     def stems(self, text):
         length = self.cfg.search.stem_length
         stops = self.cfg.stopwords
@@ -136,10 +145,53 @@ class Index:
                 for w in re.findall(r"[\w'’-]+", text, re.UNICODE)
                 if w.lower() not in stops and len(w) > 1}
 
+    # -- disk cache -------------------------------------------------------
+    def cache_path(self):
+        return os.path.join(os.path.dirname(self.cfg.layout.path("manifest")),
+                            CACHE_NAME)
+
+    def _load_cache(self, key):
+        path = self.cache_path()
+        if not os.path.isfile(path):
+            return False
+        try:
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            return False                     # a damaged cache is just a miss
+        if [list(entry) for entry in key] != data.get("key"):
+            return False
+        try:
+            self.chunks = [(n, l, h, b, set(bs), set(hs))
+                           for n, l, h, b, bs, hs in data["chunks"]]
+            self.idf = data["idf"]
+        except (KeyError, TypeError, ValueError):
+            return False
+        self._key = key
+        self.loaded_from_cache = True
+        return True
+
+    def _save_cache(self, key):
+        try:
+            os.makedirs(os.path.dirname(self.cache_path()), exist_ok=True)
+            payload = {"key": [list(entry) for entry in key],
+                       "chunks": [[n, l, h, b, sorted(bs), sorted(hs)]
+                                  for n, l, h, b, bs, hs in self.chunks],
+                       "idf": self.idf}
+            temporary = self.cache_path() + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+            os.replace(temporary, self.cache_path())
+        except OSError:
+            pass                            # a read-only base still searches
+
+    # -- indexing ---------------------------------------------------------
     def build(self):
         files = self.files()
         key = tuple((name, os.path.getmtime(path)) for name, path in files)
         if self._key == key:
+            return self
+        if self._load_cache(key):
             return self
         chunks, frequency = [], {}
         for name, path in files:
@@ -153,6 +205,8 @@ class Index:
         self.chunks = chunks
         self.idf = {t: math.log(1 + total / c) for t, c in frequency.items()}
         self._key = key
+        self.loaded_from_cache = False
+        self._save_cache(key)
         return self
 
     # -- querying ---------------------------------------------------------
