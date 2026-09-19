@@ -644,3 +644,65 @@ class TestVerify(BaseCase):
         self._card("# Card\n\n1. First step\n2. Second step\n3. Third step\n")
         code, output = self._run()
         self.assertEqual(code, 0, f"list markers were read as claims:\n{output}")
+
+
+class TestChunkOverlap(BaseCase):
+    """A rule and its exception must be able to land in one fragment.
+
+    With disjoint fragments they fall on opposite sides of a boundary and
+    neither half answers the question: the fragment naming a penalty no longer
+    says what triggers it.
+    """
+
+    def test_a_rule_and_its_exception_survive_a_boundary(self):
+        from docbase.search import split_chunks
+        prefix = " ".join(f"Routine sentence {i} about the process." for i in range(1, 6))
+        trailing = " ".join(f"Trailing sentence {i} about retention." for i in range(1, 6))
+        text = (f"{prefix} A request above 750 EUR requires written approval. "
+                f"This threshold is waived inside an approved annual plan. {trailing}")
+
+        without = split_chunks(text, 260, 0)
+        with_overlap = split_chunks(text, 260, 120)
+
+        self.assertEqual(
+            sum(1 for p in without if "750" in p and "annual plan" in p), 0,
+            "the fixture no longer straddles a boundary; the test proves nothing")
+        self.assertGreaterEqual(
+            sum(1 for p in with_overlap if "750" in p and "annual plan" in p), 1,
+            "overlap failed to keep the rule and its exception together")
+
+    def test_adjacent_fragments_share_a_sentence(self):
+        from docbase.search import split_chunks
+        text = " ".join(f"Sentence {i} carries fact number {i}." for i in range(1, 13))
+        parts = split_chunks(text, 150, 100)
+        shared = sum(1 for a, b in zip(parts, parts[1:])
+                     if (set(a.split(".")) & set(b.split("."))) - {""})
+        self.assertGreater(shared, 0)
+
+    def test_overlap_is_whole_sentences(self):
+        from docbase.search import split_chunks
+        text = " ".join(f"Sentence {i} carries fact number {i}." for i in range(1, 13))
+        for part in split_chunks(text, 150, 100):
+            self.assertFalse(part.startswith("carries"),
+                             "a fragment began mid-sentence")
+
+    def test_changing_chunk_settings_invalidates_the_cache(self):
+        """Otherwise a config change appears to do nothing at all."""
+        from dataclasses import replace as dc_replace
+        for i in range(6):
+            self.drop(f"doc-{i}.html", page(
+                700 + i, f"Handbook {i}",
+                " ".join(f"Sentence {n} about approval thresholds and limits."
+                         for n in range(1, 20))))
+        self.sync(quiet=True)
+
+        first = Index(self.cfg).build()
+        self.assertFalse(first.loaded_from_cache)
+
+        wider = config_module.Config(
+            layout=self.cfg.layout, importer=self.cfg.importer,
+            languages=self.cfg.languages,
+            search=dc_replace(self.cfg.search, chunk_chars=120))
+        second = Index(wider).build()
+        self.assertFalse(second.loaded_from_cache,
+                         "the cache was reused after the chunk settings changed")

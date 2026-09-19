@@ -42,6 +42,8 @@ class Layout:
 class Search:
     stem_length: int = 5
     chunk_chars: int = 420
+    #: Fraction of a fragment repeated into the next one.
+    chunk_overlap: float = 0.25
     default_hits: int = 8
     per_hit_chars: int = 620
     total_chars: int = 6000

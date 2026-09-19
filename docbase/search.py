@@ -43,22 +43,40 @@ def clean(line):
     return re.sub(r"\*{1,3}|`", "", line)
 
 
-def split_chunks(text, chunk_chars):
-    """A long paragraph -> sentence-aligned fragments of about chunk_chars."""
-    parts, current = [], ""
-    for piece in RE_SENTENCE.split(text):
-        if not piece:
-            continue
-        if len(current) + len(piece) > chunk_chars and current:
-            parts.append(current.strip())
-            current = ""
-        current += piece + " "
-    if current.strip():
-        parts.append(current.strip())
+def split_chunks(text, chunk_chars, overlap_chars=0):
+    """A long paragraph -> sentence-aligned fragments of about chunk_chars.
+
+    Fragments overlap by default. Without it a rule and its exception land on
+    opposite sides of a boundary and neither half answers the question: the
+    fragment naming a penalty no longer says what triggers it.
+
+    The overlap is carried back as whole sentences — splitting mid-sentence
+    would add noise to the index without adding an answer.
+    """
+    sentences = [piece for piece in RE_SENTENCE.split(text) if piece]
+    parts, current = [], []
+
+    def length(items):
+        return sum(len(i) + 1 for i in items)
+
+    for piece in sentences:
+        if current and length(current) + len(piece) > chunk_chars:
+            parts.append(" ".join(current).strip())
+            carried, size = [], 0
+            for previous in reversed(current):
+                if overlap_chars <= 0 or size + len(previous) > overlap_chars:
+                    break
+                carried.insert(0, previous)
+                size += len(previous)
+            current = carried
+        current.append(piece)
+
+    if current and " ".join(current).strip():
+        parts.append(" ".join(current).strip())
     return parts
 
 
-def sections(path, chunk_chars):
+def sections(path, chunk_chars, overlap_chars=0):
     """Document -> [(line number, heading, fragment)]."""
     lines = open(path, encoding="utf-8").read().splitlines()
     out, heading, buf, start = [], "", [], 1
@@ -75,7 +93,7 @@ def sections(path, chunk_chars):
             position += 1
         body = " ".join(line for _, line in offsets)
         consumed = 0
-        for chunk in split_chunks(body, chunk_chars):
+        for chunk in split_chunks(body, chunk_chars, overlap_chars):
             line_no, seen = start, 0
             for position, line in offsets:
                 if seen + len(line) + 1 > consumed:
@@ -161,6 +179,8 @@ class Index:
             return False                     # a damaged cache is just a miss
         if [list(entry) for entry in key] != data.get("key"):
             return False
+        if data.get("settings") != self.settings_key():
+            return False
         try:
             self.chunks = [(n, l, h, b, set(bs), set(hs))
                            for n, l, h, b, bs, hs in data["chunks"]]
@@ -175,6 +195,7 @@ class Index:
         try:
             os.makedirs(os.path.dirname(self.cache_path()), exist_ok=True)
             payload = {"key": [list(entry) for entry in key],
+                       "settings": self.settings_key(),
                        "chunks": [[n, l, h, b, sorted(bs), sorted(hs)]
                                   for n, l, h, b, bs, hs in self.chunks],
                        "idf": self.idf}
@@ -186,6 +207,17 @@ class Index:
             pass                            # a read-only base still searches
 
     # -- indexing ---------------------------------------------------------
+    def settings_key(self):
+        """Chunking settings belong in the cache key.
+
+        Change chunk_chars or chunk_overlap and the fragments change with them;
+        without this the cache silently serves an index built under the old
+        settings, and a config change appears to do nothing.
+        """
+        settings = self.cfg.search
+        return [settings.chunk_chars, settings.chunk_overlap,
+                settings.stem_length, sorted(self.cfg.languages)]
+
     def build(self):
         files = self.files()
         key = tuple((name, os.path.getmtime(path)) for name, path in files)
@@ -195,7 +227,9 @@ class Index:
             return self
         chunks, frequency = [], {}
         for name, path in files:
-            for line_no, heading, body in sections(path, self.cfg.search.chunk_chars):
+            settings = self.cfg.search
+            overlap = int(settings.chunk_chars * settings.chunk_overlap)
+            for line_no, heading, body in sections(path, settings.chunk_chars, overlap):
                 body_stems = self.stems(body)
                 head_stems = self.stems(heading)
                 chunks.append((name, line_no, heading, body, body_stems, head_stems))

@@ -215,6 +215,11 @@ Exit code 1 when something is unverified, so it works as a gate in CI.
 
 ## Retrieval
 
+Documents are split by heading, then into overlapping fragments at sentence
+boundaries. The overlap matters more than it looks: without it a rule and its
+exception land on opposite sides of a boundary, and the fragment naming a
+penalty no longer says what triggers it.
+
 Fragments are scored by IDF-weighted coverage of the query, so words that occur
 in every document stop drowning out the ones that pick out a topic. Headings
 count double; a short focused fragment beats a long diffuse one.
