@@ -28,6 +28,11 @@ from . import link as link_module
 #: unbounded pile of them is noise nobody ever reads.
 HISTORY_LIMIT = 10
 
+#: The report is read by a person, and by an agent that pays for every line of
+#: it. A space export of five hundred near-identical pages must not turn into
+#: five hundred lines of log.
+LOG_LIMIT = 12
+
 DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".docx", ".mhtml", ".mht",
                   ".md", ".markdown", ".txt", ".rst", ".text")
 ARCHIVE_EXTENSIONS = (".zip",)
@@ -103,12 +108,13 @@ def collect_dropped(cfg, log):
         if name.lower().endswith(DOC_EXTENSIONS):
             known[fingerprint(os.path.join(originals, name))] = name
 
+    duplicates, added = [], []
     for name in dropped:
         source = os.path.join(layout.root, name)
         digest = fingerprint(source)
         if digest in known:
             os.remove(source)
-            log.append(f"{name} is already in the base as {known[digest]}; removed the copy")
+            duplicates.append(name)
             continue
         extension = os.path.splitext(name)[1].lower()
         base = os.path.join(originals, cfg.slug(os.path.splitext(name)[0]))
@@ -118,7 +124,13 @@ def collect_dropped(cfg, log):
             counter += 1
         os.rename(source, target)
         known[digest] = os.path.basename(target)
-        log.append(f"{name} -> {os.path.relpath(target, layout.root)}")
+        added.append(f"{name} -> {os.path.relpath(target, layout.root)}")
+
+    log.extend(_summarise(added, "added"))
+    if duplicates:
+        log.append(f"{len(duplicates)} duplicate copies removed"
+                   if len(duplicates) > 1
+                   else f"{duplicates[0]} is already in the base; removed the copy")
 
 
 def unpack_archives(cfg, log):
@@ -158,6 +170,13 @@ def unpack_archives(cfg, log):
         os.remove(path)
         log.append(f"unpacked {name}: {taken} documents"
                    if taken else f"{name} held nothing importable")
+
+
+def _summarise(entries, what):
+    """Long lists collapse to a count; the detail helps nobody."""
+    if len(entries) <= LOG_LIMIT:
+        return entries
+    return entries[:LOG_LIMIT] + [f"… and {len(entries) - LOG_LIMIT} more {what}"]
 
 
 # -------------------------------------------------------------- naming
@@ -295,7 +314,8 @@ def run(cfg=None, quiet=False, force=False):
     manifest = {} if force else read_manifest(manifest_path)
 
     log, failed, rebuilt = [], [], set()
-    converted = skipped = 0
+    added = []
+    converted = skipped = unchanged = 0
 
     collect_dropped(cfg, log)
 
@@ -365,18 +385,27 @@ def run(cfg=None, quiet=False, force=False):
         previous = ""
         if os.path.exists(destination):
             previous = open(destination, encoding="utf-8").read()
-        with open(destination, "w", encoding="utf-8") as handle:
-            handle.write(markdown)
 
-        if previous:
-            record_history(cfg, out_name, previous, markdown, log)
+        if previous == markdown:
+            # Re-parsed to the same text. Writing it anyway would change the
+            # mtime and throw away the search index for no reason.
+            unchanged += 1
         else:
-            log.append(f"added {os.path.relpath(destination, layout.root)}")
+            with open(destination, "w", encoding="utf-8") as handle:
+                handle.write(markdown)
+            if previous:
+                record_history(cfg, out_name, previous, markdown, log)
+            else:
+                added.append(f"added {os.path.relpath(destination, layout.root)}")
+            rebuilt.add(out_name)
 
         manifest[name] = {"sha1": digest, "stat": stat,
                           "out": out_name, "page_id": page_id}
         converted += 1
-        rebuilt.add(out_name)
+
+    log.extend(_summarise(added, "documents"))
+    if unchanged:
+        log.append(f"{unchanged} documents re-read and unchanged")
 
     heal_card_sources(cfg, manifest, log)
     mark_stale_cards(cfg, rebuilt, log)
@@ -433,7 +462,7 @@ def _print_report(cfg, report):
     if report["skipped"]:
         line += f", {report['skipped']} unchanged"
     print(line)
-    for entry in report["log"]:
+    for entry in _summarise(report["log"], "entries"):
         print(f"  - {entry}")
     stats = report["link"]
     if stats.get("linked"):

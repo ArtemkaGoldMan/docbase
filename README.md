@@ -344,7 +344,7 @@ kb/graph.md     what exists, what is referenced but missing
 python -m unittest discover tests
 ```
 
-Seventy-four regression tests. Every one of them is a failure that actually
+Eighty regression tests. Every one of them is a failure that actually
 happened, most of them silent: a document overwritten by another with a similar
 title, one broken file aborting the whole import, an asset folder deleted along
 with hand-written notes, a half-written manifest from two concurrent runs.

@@ -975,3 +975,71 @@ class TestAuditFindings(BaseCase):
         url = "https://wiki.one.example/pages/viewpage.action?pageId=5"
         self.assertIsNotNone(link.page_id_of(url, first))
         self.assertIsNone(link.page_id_of(url, second))
+
+
+class TestHostileInput(BaseCase):
+    """Degenerate and hostile files, because a base is fed by whatever a
+    person happened to export."""
+
+    def _docx(self, name, document, rels=True):
+        import zipfile
+        path = os.path.join(self.root, name)
+        with zipfile.ZipFile(path, "w") as archive:
+            if document is not None:
+                archive.writestr("word/document.xml", document)
+            else:
+                archive.writestr("readme.txt", "no document inside")
+        return path
+
+    def test_malformed_docx_xml_is_reported_not_fatal(self):
+        self._docx("broken.docx", "<not closed")
+        self.drop("good.md", "# Good\n\nThis must still import.\n")
+        report = self.sync(quiet=True)
+        self.assertEqual(len(report["failed"]), 1)
+        self.assertIn("good.md", self.text_files())
+
+    def test_docx_without_a_document_part_is_reported(self):
+        self._docx("empty.docx", None)
+        report = self.sync(quiet=True)
+        self.assertEqual(len(report["failed"]), 1)
+
+    def test_a_symlink_in_an_archive_does_not_become_a_symlink(self):
+        import zipfile
+        path = os.path.join(self.root, "evil.zip")
+        with zipfile.ZipFile(path, "w") as archive:
+            info = zipfile.ZipInfo("evil.md")
+            info.external_attr = (0xA000 | 0o777) << 16      # symlink bit
+            archive.writestr(info, "/etc/passwd")
+        self.sync(quiet=True)
+        for folder in (self.root, self.cfg.layout.path("originals")):
+            candidate = os.path.join(folder, "evil.md")
+            if os.path.exists(candidate):
+                self.assertFalse(os.path.islink(candidate),
+                                 "an archive entry was restored as a symlink")
+
+    def test_hundreds_of_duplicates_do_not_flood_the_report(self):
+        """The report is read by an agent that pays per line of it."""
+        import zipfile
+        path = os.path.join(self.root, "many.zip")
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for i in range(200):
+                archive.writestr(f"doc-{i}.md", "# Doc\n\n" + "filler " * 100)
+        report = self.sync(quiet=True)
+        from docbase import sync as sync_module
+        self.assertLessEqual(len(report["log"]), sync_module.LOG_LIMIT + 2)
+        self.assertTrue(any("duplicate" in line for line in report["log"]))
+
+    def test_force_does_not_rewrite_identical_output(self):
+        """Rewriting would change the mtime and discard the search index."""
+        self.drop("a.md", "# Policy\n\nThe rule is stable.\n")
+        self.sync(quiet=True)
+        target = os.path.join(self.cfg.layout.path("text"), self.text_files()[0])
+        before = os.path.getmtime(target)
+        self.sync(quiet=True, force=True)
+        self.assertEqual(before, os.path.getmtime(target))
+
+    def test_empty_files_do_not_crash_the_import(self):
+        self.drop("empty.md", "")
+        self.drop("empty.html", "")
+        report = self.sync(quiet=True)
+        self.assertEqual(report["failed"], [])
