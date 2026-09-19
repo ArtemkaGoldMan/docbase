@@ -474,3 +474,16 @@ class TestLanguages(BaseCase):
             handle.write("{ not json")
         cfg = config_module.load(self.root)
         self.assertTrue(cfg.stopwords)          # still usable
+
+    def test_a_language_file_can_override_decomposition(self):
+        """Danish "å" must become "aa", not the "a" that stripping accents gives.
+
+        Decomposition used to run first, which silently discarded every custom
+        mapping for an accented Latin letter.
+        """
+        from docbase import languages
+        self.assertEqual(
+            languages.slugify("Rejseafregning på årsbasis", {"å": "aa", "ø": "oe"}),
+            "rejseafregning-paa-aarsbasis")
+        # …while unmapped accents still fall back to decomposition.
+        self.assertEqual(languages.slugify("procédure", {"å": "aa"}), "procedure")

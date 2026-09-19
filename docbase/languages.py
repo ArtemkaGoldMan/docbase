@@ -123,20 +123,22 @@ def transliterate(text, extra_map=None):
     if extra_map:
         table.update(extra_map)
 
-    # Decompose first, then map. An accented Greek or Cyrillic letter is not
-    # in any table under its accented form, and mapping before decomposition
-    # left the bare letter behind to be discarded later.
-    decomposed = unicodedata.normalize("NFKD", text)
-    bare = "".join(c for c in decomposed if not unicodedata.combining(c))
+    def mapped(char):
+        replacement = table[char.lower()]
+        return replacement.upper() if char.isupper() and replacement else replacement
 
     out = []
-    for char in bare:
-        lower = char.lower()
-        if lower in table:
-            replacement = table[lower]
-            out.append(replacement.upper() if char.isupper() and replacement else replacement)
-        else:
-            out.append(char)
+    for char in text:
+        # The table wins on the original character, so a language file can say
+        # Danish "å" -> "aa" rather than getting "a" from decomposition.
+        if char.lower() in table:
+            out.append(mapped(char))
+            continue
+        # Otherwise strip accents and try again: an accented Greek or Cyrillic
+        # letter appears in no table under its accented form.
+        bare = "".join(c for c in unicodedata.normalize("NFKD", char)
+                       if not unicodedata.combining(c))
+        out.append("".join(mapped(c) if c.lower() in table else c for c in bare))
     return "".join(out)
 
 
