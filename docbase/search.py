@@ -290,6 +290,3 @@ class Index:
                     out.append((number, heading))
         return out
 
-
-def index_for(cfg=None):
-    return Index(cfg or config_module.load())

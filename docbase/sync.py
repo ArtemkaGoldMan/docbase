@@ -24,6 +24,10 @@ from . import config as config_module
 from . import languages as languages_module
 from . import link as link_module
 
+#: How many past versions of a document to keep. Diffs are small, but an
+#: unbounded pile of them is noise nobody ever reads.
+HISTORY_LIMIT = 10
+
 DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".docx", ".mhtml", ".mht",
                   ".md", ".markdown", ".txt", ".rst", ".text")
 ARCHIVE_EXTENSIONS = (".zip",)
@@ -205,11 +209,22 @@ def record_history(cfg, name, old_text, new_text, log):
     with open(os.path.join(folder, "previous.md"), "w", encoding="utf-8") as handle:
         handle.write(old_text)
 
+    _prune_history(folder)
+
     added = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
     removed = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
     log.append(f"{name} changed: +{added}/-{removed} lines "
                f"(diff in {os.path.relpath(folder, cfg.layout.root)})")
     return True
+
+
+def _prune_history(folder, limit=HISTORY_LIMIT):
+    diffs = sorted(f for f in os.listdir(folder) if f.endswith(".diff"))
+    for stale_diff in diffs[:-limit] if len(diffs) > limit else []:
+        try:
+            os.remove(os.path.join(folder, stale_diff))
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------- cards

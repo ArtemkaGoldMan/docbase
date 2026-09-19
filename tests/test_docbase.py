@@ -871,3 +871,107 @@ class TestMcpServer(BaseCase):
         replies = [json.loads(l) for l in out.getvalue().splitlines() if l.strip()]
         self.assertEqual(replies[0]["error"]["code"], -32700)
         self.assertEqual(replies[1]["id"], 1)
+
+
+class TestAuditFindings(BaseCase):
+    """Problems found by reviewing the whole project rather than a diff."""
+
+    def test_language_files_are_read_once_not_per_fragment(self):
+        """Resolving them on every access meant a directory check per indexed
+        fragment, and an actual file read for anyone who used the feature —
+        2.4x slower for exactly the people the feature exists for."""
+        from docbase import languages
+
+        folder = os.path.join(self.root, "kb", "languages")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "da.json"), "w", encoding="utf-8") as handle:
+            json.dump({"stopwords": ["og", "eller"]}, handle)
+
+        for i in range(4):
+            self.drop(f"doc-{i}.html", page(800 + i, f"Handbook {i}",
+                                            " ".join(f"Sentence {n} about limits."
+                                                     for n in range(1, 30))))
+        self.sync(quiet=True)
+
+        calls = []
+        original = languages.load_custom
+        languages.load_custom = lambda *a, **k: (calls.append(1), original(*a, **k))[1]
+        try:
+            cfg = config_module.load(self.root)
+            index = Index(cfg).build()
+        finally:
+            languages.load_custom = original
+
+        self.assertTrue(index.chunks)
+        self.assertLessEqual(len(calls), 1,
+                             "language files were re-read while indexing")
+
+    def test_history_does_not_grow_without_bound(self):
+        from docbase import sync as sync_module
+        for version in range(sync_module.HISTORY_LIMIT + 4):
+            self.drop(f"v{version}.html", page(
+                900, "Travel booking", f"Notice period is {version} working days."))
+            self.sync(quiet=True)
+
+        folder = os.path.join(self.cfg.layout.path("history"), "travel-booking")
+        diffs = [f for f in os.listdir(folder) if f.endswith(".diff")]
+        self.assertLessEqual(len(diffs), sync_module.HISTORY_LIMIT)
+        self.assertTrue(diffs, "history was pruned away entirely")
+
+    def test_verify_clears_a_stale_marker_when_the_card_still_holds(self):
+        """Otherwise the marker stays up forever and people learn to ignore it."""
+        from docbase import verify
+
+        self.drop("travel.html", page(901, "Travel booking",
+                                      "Cancellation incurs a 150 EUR fee."))
+        self.sync(quiet=True)
+
+        folder = os.path.join(self.cfg.layout.path("cards"), "travel")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "ask.md"), "w", encoding="utf-8") as handle:
+            handle.write("---\nsource: kb/text/travel-booking.md\n---\n\n"
+                         "# Card\n\n- Cancellation fee is 150 EUR\n")
+
+        # The source changes, but the fee does not.
+        self.drop("travel-v2.html", page(
+            901, "Travel booking",
+            "Cancellation incurs a 150 EUR fee. Requests go through the portal."))
+        self.sync(quiet=True)
+        self.assertTrue(os.path.isfile(os.path.join(folder, "_stale")))
+
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = verify.report(self.cfg)
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertFalse(os.path.isfile(os.path.join(folder, "_stale")))
+
+    def test_verify_keeps_the_marker_when_a_claim_broke(self):
+        from docbase import verify
+
+        self.drop("travel.html", page(902, "Travel booking",
+                                      "Cancellation incurs a 150 EUR fee."))
+        self.sync(quiet=True)
+        folder = os.path.join(self.cfg.layout.path("cards"), "travel")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "ask.md"), "w", encoding="utf-8") as handle:
+            handle.write("---\nsource: kb/text/travel-booking.md\n---\n\n"
+                         "# Card\n\n- Cancellation fee is 150 EUR\n")
+
+        self.drop("travel-v2.html", page(902, "Travel booking",
+                                         "Cancellation incurs a 400 EUR fee."))
+        self.sync(quiet=True)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = verify.report(self.cfg)
+        self.assertEqual(code, 1)
+        self.assertTrue(os.path.isfile(os.path.join(folder, "_stale")))
+
+    def test_linking_does_not_leak_state_between_calls(self):
+        """Two bases with different wiki hosts in one process must not
+        interfere; a long-running MCP server is exactly such a process."""
+        from docbase import link
+
+        first = link.page_pattern(("wiki.one.example",))
+        second = link.page_pattern(("wiki.two.example",))
+        url = "https://wiki.one.example/pages/viewpage.action?pageId=5"
+        self.assertIsNotNone(link.page_id_of(url, first))
+        self.assertIsNone(link.page_id_of(url, second))

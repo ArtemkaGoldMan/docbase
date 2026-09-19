@@ -117,7 +117,8 @@ def report(cfg=None, verbose=False):
                     by_id[doc_id] = name
 
     total_cards = total_confirmed = 0
-    findings, orphans, stale = [], [], []
+    findings, orphans, stale, cleared = [], [], [], []
+    passed_by_topic = {}
 
     for topic in sorted(os.listdir(cards_dir)):
         folder = os.path.join(cards_dir, topic)
@@ -154,8 +155,30 @@ def report(cfg=None, verbose=False):
             total_confirmed += confirmed
             if problems:
                 findings.append((f"{topic}/{card}", source_name, problems))
+                passed_by_topic[topic] = False
+            elif confirmed:
+                # Only a card that actually asserted something counts as
+                # checked; one with no numbers or quotations proves nothing.
+                passed_by_topic.setdefault(topic, True)
+
+    # A stale marker means the source moved. If every claim still holds
+    # against the new source, the card is consistent with it by definition,
+    # and leaving the marker up teaches people to ignore the signal.
+    for topic in list(stale):
+        if passed_by_topic.get(topic):
+            try:
+                os.remove(os.path.join(cards_dir, topic, "_stale"))
+                stale.remove(topic)
+                cleared.append(topic)
+            except OSError:
+                pass
 
     print(f"Cards checked: {total_cards}   claims confirmed: {total_confirmed}")
+
+    if cleared:
+        print("\nStale markers cleared (claims still hold against the new source):")
+        for topic in cleared:
+            print(f"  {topic}")
 
     if orphans:
         print("\nCards whose source is missing:")

@@ -99,20 +99,6 @@ def _words(blob):
     return frozenset(blob.split())
 
 
-def stopwords_for(languages, extra=()):
-    """Merge the stopword sets of every configured language.
-
-    Mixed-language corpora are the norm, not the exception: Ukrainian policies
-    quote English product names, German handbooks quote English job titles.
-    """
-    out = set(extra)
-    for code in languages:
-        blob = STOPWORDS.get(code)
-        if blob:
-            out |= _words(blob)
-    return frozenset(out)
-
-
 def transliterate(text, extra_map=None):
     """Any script -> ASCII, as faithfully as a lookup table can manage.
 

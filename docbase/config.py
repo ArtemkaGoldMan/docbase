@@ -74,15 +74,17 @@ class Config:
         """The primary language, for callers that want a single code."""
         return self.languages[0] if self.languages else "en"
 
-    @property
-    def _custom(self):
-        return languages.load_custom(self.layout.root)
+    #: Language files found in the base, resolved once at load time.
+    #: Reading them on every access meant a directory check per indexed
+    #: fragment — 7000 of them on a 200-document corpus, and an actual file
+    #: read and JSON parse each time for anyone who used the feature.
+    custom_stopwords: tuple = ()
+    custom_translit: tuple = ()
 
     @property
     def stopwords(self):
-        custom_stop, _ = self._custom
         merged = dict(languages.STOPWORDS)
-        merged.update(custom_stop)
+        merged.update(dict(self.custom_stopwords))
         words = set(self.extra_stopwords)
         for code in self.languages:
             if code in merged:
@@ -92,8 +94,7 @@ class Config:
     @property
     def translit(self):
         """Extra character mappings contributed by user language files."""
-        _, custom_translit = self._custom
-        return custom_translit
+        return dict(self.custom_translit)
 
     def slug(self, text, fallback="document"):
         return languages.slugify(text, self.translit, fallback)
@@ -158,12 +159,16 @@ def load(root=None):
     if isinstance(language, str):
         language = [language]
 
+    custom_stop, custom_translit = languages.load_custom(layout.root)
+
     return Config(
         layout=layout,
         search=search,
         importer=imp,
         languages=tuple(language) or ("en",),
         extra_stopwords=frozenset(raw.get("extra_stopwords", ())),
+        custom_stopwords=tuple(sorted(custom_stop.items())),
+        custom_translit=tuple(sorted(custom_translit.items())),
     )
 
 

@@ -43,8 +43,8 @@ RE_CONF_PAGE = page_pattern(())
 RE_ANCHOR = re.compile(r"#(.+)$")
 
 
-def page_id_of(url):
-    m = RE_CONF_PAGE.search(url)
+def page_id_of(url, pattern=None):
+    m = (pattern or RE_CONF_PAGE).search(url)
     return (m.group(1) or m.group(2)) if m else None
 
 
@@ -69,11 +69,11 @@ def scan(sources_dir):
     return registry
 
 
-def relink(text, self_id, registry, stats):
+def relink(text, self_id, registry, stats, pattern=None):
     """Rewrite the links inside one document."""
     def repl(m):
         label, url = m.group(1), m.group(2)
-        pid = page_id_of(url)
+        pid = page_id_of(url, pattern)
         if not pid:
             return m.group(0)                       # not a wiki page link
         if pid == self_id:
@@ -106,8 +106,10 @@ def run(sources=SOURCES, check=False, quiet=False, internal_hosts=(),
     """
     linkmap_path = linkmap_path or LINKMAP
     graph_path = graph_path or GRAPH
-    global RE_CONF_PAGE
-    RE_CONF_PAGE = page_pattern(internal_hosts)
+    # Passed down rather than stashed in a module global: two calls with
+    # different hosts in one process would otherwise interfere, and a
+    # long-running server is exactly such a process.
+    pattern = page_pattern(internal_hosts)
     host = internal_hosts[0] if internal_hosts else ""
     if open_url is None:
         def open_url(pid):
@@ -124,7 +126,7 @@ def run(sources=SOURCES, check=False, quiet=False, internal_hosts=(),
     for pid, info in registry.items():
         path = os.path.join(args.sources, info["file"])
         text = open(path, encoding="utf-8").read()
-        new = relink(text, pid, registry, stats)
+        new = relink(text, pid, registry, stats, pattern)
         if new != text and not args.check:
             open(path, "w", encoding="utf-8").write(new)
 

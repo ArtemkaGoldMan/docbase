@@ -145,7 +145,7 @@ def cmd_doctor(args, cfg):
             print(f"{module:<12}MISSING — run: pip install pypdf pdfplumber beautifulsoup4")
             ok = False
     from . import languages as languages_module
-    custom, _ = languages_module.load_custom(cfg.layout.root)
+    custom = dict(cfg.custom_stopwords)
     active = ", ".join(cfg.languages)
     print(f"Languages   {active}"
           + (f"  (custom: {', '.join(sorted(custom))})" if custom else ""))

@@ -237,6 +237,10 @@ findings that matter.
 
 Exit code 1 when something is unverified, so it works as a gate in CI.
 
+It also closes the loop on staleness: when a source changes, its extracts are
+marked stale, and `verify` clears that mark if every claim still holds against
+the new text. A marker nobody can clear is a signal people learn to ignore.
+
 ## Retrieval
 
 Documents are split by heading, then into overlapping fragments at sentence
@@ -340,7 +344,7 @@ kb/graph.md     what exists, what is referenced but missing
 python -m unittest discover tests
 ```
 
-Twenty-eight regression tests. Every one of them is a failure that actually
+Seventy-four regression tests. Every one of them is a failure that actually
 happened, most of them silent: a document overwritten by another with a similar
 title, one broken file aborting the whole import, an asset folder deleted along
 with hand-written notes, a half-written manifest from two concurrent runs.
