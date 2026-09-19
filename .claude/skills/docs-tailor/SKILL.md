@@ -81,8 +81,10 @@ an honest gap is usable, a confident invention is not.
 ```bash
 python -m docbase eval --generate
 python -m docbase eval
+python -m docbase verify
 ```
 
-Then spot-check the cards against the source: for each fact you wrote, confirm
-it appears in the document. A card that drifts from its source is the one
-failure mode that this whole design exists to prevent.
+`verify` checks every number and quotation in the cards you wrote against the
+document they came from. A card that drifts from its source is the one failure
+mode this whole design exists to prevent, so treat a finding there as a bug in
+the card, not as noise.

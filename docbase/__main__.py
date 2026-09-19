@@ -6,6 +6,7 @@
     docbase map       list documents and their sections
     docbase status    what is stale, changed or missing
     docbase eval      measure retrieval quality
+    docbase verify    check extracts still match their source
     docbase doctor    check the environment
 
 Agents talk to the base through this CLI, which keeps the tool usable from
@@ -122,6 +123,11 @@ def cmd_eval(args, cfg):
     return evaluate.run(cfg, verbose=args.verbose)
 
 
+def cmd_verify(args, cfg):
+    from . import verify
+    return verify.report(cfg, verbose=args.verbose)
+
+
 def cmd_doctor(args, cfg):
     ok = True
     print(f"Python      {sys.version.split()[0]}")
@@ -185,6 +191,10 @@ def build_parser():
     p.add_argument("--count", type=int, default=20)
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_eval)
+
+    p = subparsers.add_parser("verify", help="check extracts against their source")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.set_defaults(func=cmd_verify)
 
     p = subparsers.add_parser("doctor", help="check the environment")
     p.set_defaults(func=cmd_doctor)

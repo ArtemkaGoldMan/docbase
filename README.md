@@ -118,6 +118,7 @@ that PDF flattens away. Markdown passes through untouched.
 | `docbase map` | documents and their sections |
 | `docbase status` | what is stale, changed or missing |
 | `docbase eval` | measure retrieval quality on your own corpus |
+| `docbase verify` | check extracts still match their source |
 | `docbase doctor` | check the environment |
 
 ## For AI agents
@@ -186,6 +187,31 @@ Documents: 2
 Cards waiting to be rebuilt (their source changed):
   - travel
 ```
+
+## Verifying extracts
+
+Cards are written by a model, from fragments, and then sit there while the
+document moves underneath them. Staleness only notices that a file changed; it
+cannot tell whether the card was ever right.
+
+```console
+$ docbase verify
+Cards checked: 1   claims confirmed: 4
+
+Claims not found in the source:
+
+  travel/ask.md  (against travel-booking.md)
+    number  250 EUR   <- - Cancellation fee is 250 EUR
+    quote   regional finance controller
+```
+
+Two kinds of claim are checked, both verifiable and both expensive to get
+wrong: **numbers** — limits, deadlines, penalties — and **quoted text**, which
+claims to be the document's own words. Prose is deliberately left alone; a card
+is supposed to summarise, and flagging every reworded sentence would bury the
+findings that matter.
+
+Exit code 1 when something is unverified, so it works as a gate in CI.
 
 ## Retrieval
 

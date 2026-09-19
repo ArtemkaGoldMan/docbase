@@ -33,6 +33,7 @@ faster than it earns anything.
 | `python -m docbase map` | documents and their sections |
 | `python -m docbase status` | stale, changed, missing |
 | `python -m docbase eval` | retrieval quality |
+| `python -m docbase verify` | extracts still match their source |
 | `python -m docbase doctor` | environment check |
 
 ## When `find` says LOW CONFIDENCE
@@ -45,7 +46,8 @@ documentation would use, then read the section directly with
 ## Cards and history
 
 `kb/cards/<topic>/` holds extracts distilled from a source; read those before
-searching. A `_stale` marker means the source changed — the diff in
+searching. After writing or editing one, run `python -m docbase verify` — it
+catches a number or quotation that is not in the document. A `_stale` marker means the source changed — the diff in
 `kb/history/<document>/` shows exactly what, so update the card surgically
 rather than rebuilding it blind, then delete the marker.
 

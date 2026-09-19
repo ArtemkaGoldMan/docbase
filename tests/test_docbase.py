@@ -564,3 +564,83 @@ class TestTextAndArchives(BaseCase):
         report = self.sync(quiet=True)
         self.assertIn("good.md", self.text_files())
         self.assertTrue(any("could not open" in line for line in report["log"]))
+
+
+class TestVerify(BaseCase):
+    """Extracts must keep saying what their source says.
+
+    Staleness only notices that a document changed. It cannot tell whether the
+    card was ever right — and a card is written by a model, from fragments,
+    which is exactly where an invented number comes from.
+    """
+
+    SOURCE = ("# Travel booking\n\nDomestic trips must be requested at least five "
+              "working days in advance, international trips at least fifteen. A "
+              "non-refundable fare may be chosen only when it is cheaper by more "
+              "than 30 percent.\n\nCancellation after booking incurs a 150 EUR fee.\n")
+
+    def _card(self, body, source="travel-booking.md"):
+        folder = os.path.join(self.cfg.layout.path("cards"), "travel")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "ask.md")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(f"---\nsource: kb/text/{source}\n---\n\n{body}")
+        return path
+
+    def _load(self):
+        self.drop("travel.md", self.SOURCE)
+        self.sync(quiet=True)
+
+    def _run(self):
+        from docbase import verify
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = verify.report(self.cfg)
+        return code, out.getvalue()
+
+    def test_a_faithful_card_passes(self):
+        self._load()
+        self._card("# Card\n\n- Domestic: 5 working days\n"
+                   "- International: 15 working days\n"
+                   "- Cancellation fee is 150 EUR\n")
+        code, output = self._run()
+        self.assertEqual(code, 0, output)
+        self.assertIn("present in its source", output)
+
+    def test_an_invented_number_is_caught(self):
+        self._load()
+        self._card("# Card\n\n- Cancellation fee is 250 EUR\n")
+        code, output = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("250", output)
+
+    def test_an_invented_quotation_is_caught(self):
+        self._load()
+        self._card("# Card\n\n- Approval from the `regional finance controller`\n")
+        code, output = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("regional finance controller", output)
+
+    def test_a_real_quotation_passes(self):
+        self._load()
+        self._card("# Card\n\n- Allowed when `cheaper by more than 30 percent`\n")
+        code, output = self._run()
+        self.assertEqual(code, 0, output)
+
+    def test_a_card_pointing_at_a_missing_document_is_reported(self):
+        self._load()
+        self._card("# Card\n\n- Anything\n", source="does-not-exist.md")
+        code, output = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("source is missing", output)
+
+    def test_no_cards_is_not_a_failure(self):
+        self._load()
+        code, output = self._run()
+        self.assertEqual(code, 0)
+        self.assertIn("No cards to verify", output)
+
+    def test_list_numbering_is_not_treated_as_a_claim(self):
+        self._load()
+        self._card("# Card\n\n1. First step\n2. Second step\n3. Third step\n")
+        code, output = self._run()
+        self.assertEqual(code, 0, f"list markers were read as claims:\n{output}")
