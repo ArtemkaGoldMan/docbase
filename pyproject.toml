@@ -27,7 +27,7 @@ dependencies = [
 docbase = "docbase.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/artemomelchenko/docbase"
+Homepage = "https://github.com/ArtemkaGoldMan/docbase"
 
 [tool.setuptools.packages.find]
 include = ["docbase*"]
