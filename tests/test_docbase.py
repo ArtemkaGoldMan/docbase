@@ -733,7 +733,8 @@ class TestDocx(BaseCase):
  <w:tr><w:tc><w:p><w:r><w:t>above 5000 EUR</w:t></w:r></w:p></w:tc>
        <w:tc><w:p><w:r><w:t>Finance director</w:t></w:r></w:p></w:tc></w:tr>
 </w:tbl>
-<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr><w:r><w:t>Check sanctions lists</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Check sanctions lists</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Against the consolidated list</w:t></w:r></w:p>
 <w:p><w:hyperlink r:id="rId1"><w:r><w:t>Expense reports</w:t></w:r></w:hyperlink></w:p>
 </w:body></w:document>'''
         rels = '''<?xml version="1.0"?>
@@ -1259,3 +1260,72 @@ Limit all lines to a maximum of 79 characters.
         from docbase.importers.text import underlined_headings
         text = "Some prose here.\n\n-------\n\nMore prose.\n"
         self.assertNotIn("# Some prose here.", underlined_headings(text))
+
+
+class TestRealWordDocument(BaseCase):
+    """Behaviour learned from a document Word actually produced.
+
+    The hand-built fixture used earlier had idealised XML. A real file keeps
+    list nesting in one part, list markers in another, and internal
+    cross-references that carry no URL at all.
+    """
+
+    NS_W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    NS_R = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+
+    def _docx(self, name="lists.docx", numbering=True):
+        import zipfile
+        document = f'''<?xml version="1.0"?>
+<w:document {self.NS_W} {self.NS_R}><w:body>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Procedure</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr>
+     <w:r><w:t>Open the request</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="7"/></w:numPr></w:pPr>
+     <w:r><w:t>Attach the receipt</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="2"/><w:numId w:val="7"/></w:numPr></w:pPr>
+     <w:r><w:t>As PDF only</w:t></w:r></w:p>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="9"/></w:numPr></w:pPr>
+     <w:r><w:t>A plain bullet</w:t></w:r></w:p>
+<w:p><w:hyperlink w:anchor="_Toc123"><w:r><w:t>See above</w:t></w:r></w:hyperlink></w:p>
+</w:body></w:document>'''
+        numbering_xml = f'''<?xml version="1.0"?>
+<w:numbering {self.NS_W}>
+<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/></w:lvl></w:abstractNum>
+<w:abstractNum w:abstractNumId="2"><w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/></w:lvl></w:abstractNum>
+<w:num w:numId="7"><w:abstractNumId w:val="1"/></w:num>
+<w:num w:numId="9"><w:abstractNumId w:val="2"/></w:num>
+</w:numbering>'''
+        path = os.path.join(self.root, name)
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("word/document.xml", document)
+            if numbering:
+                archive.writestr("word/numbering.xml", numbering_xml)
+        return path
+
+    def _body(self, **kwargs):
+        self._docx(**kwargs)
+        self.sync(quiet=True)
+        return open(os.path.join(self.cfg.layout.path("text"), self.text_files()[0]),
+                    encoding="utf-8").read()
+
+    def test_list_nesting_is_preserved(self):
+        body = self._body()
+        self.assertIn("1. Open the request", body)
+        self.assertIn("  1. Attach the receipt", body)
+        self.assertIn("    1. As PDF only", body)
+
+    def test_numbered_and_bulleted_lists_are_distinguished(self):
+        """In a procedure that is the difference between steps and options."""
+        body = self._body()
+        self.assertIn("1. Open the request", body)
+        self.assertIn("- A plain bullet", body)
+
+    def test_an_internal_anchor_becomes_plain_text(self):
+        """A cross-reference inside the document has no URL to link to."""
+        body = self._body()
+        self.assertIn("See above", body)
+        self.assertNotIn("](_Toc123)", body)
+
+    def test_a_document_without_numbering_still_imports(self):
+        body = self._body(numbering=False)
+        self.assertIn("Open the request", body)

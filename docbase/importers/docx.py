@@ -27,6 +27,7 @@ R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 
 DOCUMENT = "word/document.xml"
 RELATIONS = "word/_rels/document.xml.rels"
+NUMBERING = "word/numbering.xml"
 
 RE_HEADING_STYLE = re.compile(r"^heading\s*(\d)$", re.I)
 
@@ -41,6 +42,36 @@ def _relationships(archive):
     for node in ElementTree.fromstring(raw):
         if node.get("Type", "").endswith("/hyperlink"):
             out[node.get("Id")] = node.get("Target", "")
+    return out
+
+
+def _numbering_formats(archive):
+    """numId -> whether that list is numbered rather than bulleted.
+
+    Word keeps the marker in a separate part, so a list arrives without any
+    hint of whether it was "1. 2. 3." or a row of dots. In a procedure that
+    distinction is the difference between steps and options.
+    """
+    try:
+        raw = archive.read(NUMBERING)
+    except KeyError:
+        return {}
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError:
+        return {}
+
+    abstract = {}
+    for node in root.findall(f"{W}abstractNum"):
+        fmt = node.find(f"{W}lvl/{W}numFmt")
+        abstract[node.get(f"{W}abstractNumId")] = (
+            fmt.get(f"{W}val") if fmt is not None else "")
+
+    out = {}
+    for node in root.findall(f"{W}num"):
+        ref = node.find(f"{W}abstractNumId")
+        key = ref.get(f"{W}val") if ref is not None else None
+        out[node.get(f"{W}numId")] = abstract.get(key, "") not in ("bullet", "")
     return out
 
 
@@ -80,13 +111,20 @@ def _paragraph_text(paragraph, relations, links):
 
 
 def _style(paragraph):
+    """-> (style name, list level or None, numbering id)."""
     properties = paragraph.find(f"{W}pPr")
     if properties is None:
-        return "", False
+        return "", None, None
     style = properties.find(f"{W}pStyle")
     name = style.get(f"{W}val", "") if style is not None else ""
-    numbered = properties.find(f"{W}numPr") is not None
-    return name, numbered
+
+    numbering = properties.find(f"{W}numPr")
+    if numbering is None:
+        return name, None, None
+    level_node = numbering.find(f"{W}ilvl")
+    id_node = numbering.find(f"{W}numId")
+    level = int(level_node.get(f"{W}val", "0")) if level_node is not None else 0
+    return name, level, (id_node.get(f"{W}val") if id_node is not None else None)
 
 
 def _table(table, relations, links):
@@ -115,6 +153,7 @@ def convert(path):
     """.docx -> (blocks, links, id)."""
     with zipfile.ZipFile(path) as archive:
         relations = _relationships(archive)
+        formats = _numbering_formats(archive)
         root = ElementTree.fromstring(archive.read(DOCUMENT))
 
     body = root.find(f"{W}body")
@@ -132,13 +171,14 @@ def convert(path):
         text = _paragraph_text(node, relations, links)
         if not text:
             continue
-        style, numbered = _style(node)
+        style, level, num_id = _style(node)
         heading = RE_HEADING_STYLE.match(style or "")
         if heading:
-            level = min(int(heading.group(1)), 4)
-            blocks.append("#" * level + " " + text)
-        elif numbered or style.lower().startswith("listparagraph"):
-            blocks.append(f"- {text}")
+            blocks.append("#" * min(int(heading.group(1)), 4) + " " + text)
+        elif level is not None or style.lower().startswith("listparagraph"):
+            indent = "  " * min(level or 0, 5)
+            marker = "1." if formats.get(num_id) else "-"
+            blocks.append(f"{indent}{marker} {text}")
         else:
             blocks.append(text)
 
@@ -179,7 +219,8 @@ def _join(blocks):
     any more, and a list becomes a run of unrelated bullets.
     """
     def contiguous(text):
-        return text.startswith("|") or text.startswith("- ")
+        stripped = text.lstrip()
+        return text.startswith("|") or stripped.startswith(("- ", "1. "))
 
     out, previous = [], None
     for block in blocks:

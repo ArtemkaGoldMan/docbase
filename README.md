@@ -102,7 +102,7 @@ docbase find "how late can I submit a claim"
 |---|---|
 | `.md` `.markdown` `.txt` `.rst` | already text; underlined headings and a declared title are picked up |
 | `.html` `.htm` | best for table-heavy pages: a row stays a row |
-| `.docx` | Word; headings from styles, tables, lists, hyperlinks |
+| `.docx` | Word; headings from styles, nested and numbered lists, tables, links |
 | `.doc` `.mhtml` | wiki "Export to Word" (MHTML inside); keeps macro tabs |
 | `.pdf` | works everywhere; links and reading order are recovered |
 | `.zip` | a space export — unpacked and imported in one step |
@@ -372,7 +372,7 @@ kb/graph.md     what exists, what is referenced but missing
 python -m unittest discover tests
 ```
 
-Ninety-eight regression tests. Every one of them is a failure that actually
+A hundred and two regression tests. Every one of them is a failure that actually
 happened, most of them silent: a document overwritten by another with a similar
 title, one broken file aborting the whole import, an asset folder deleted along
 with hand-written notes, a half-written manifest from two concurrent runs.
