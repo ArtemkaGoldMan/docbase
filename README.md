@@ -61,7 +61,8 @@ A wiki PDF stores every hyperlink as a PDF link annotation. Generic converters
 drop them, so *"as described **here**"* becomes a dead end.
 
 **docbase** reads the annotations back, and rewrites links to already-imported
-pages into local paths.
+documents into local paths — matching by page id, by declared URL, by file
+name, or by document number, so it works outside wikis too.
 
 </td><td width="33%" valign="top">
 
@@ -180,12 +181,39 @@ thing that makes the rest of this easy to install.
         ▼
   kb/text/*.md                   frontmatter carries the page id
         │
-        ├──► cross-document links rewritten to local paths
+        ├──► cross-document links resolved and rewritten to local paths
         ├──► images extracted, icons and repeated decoration filtered out
         └──► changed? previous version + unified diff into kb/history/
         │
         ▼
   search                         fragments, IDF-weighted, cached on disk
+```
+
+## Cross-document links
+
+Documents cite each other, and a citation that goes nowhere is a dead end for
+whoever follows it. Four strategies decide what a link points at, in order of
+how much they prove:
+
+| | |
+|---|---|
+| page id | a wiki URL carrying the target's identifier |
+| declared URL | the document said where it came from |
+| file name | the URL ends in the file that was imported |
+| document number | URL and document share `800-207`, `RFC 2119`, `POL-042` |
+
+The last is loose, so it is guarded: an identifier matching more than one
+document resolves to none of them, and a letter suffix is a different document
+rather than a revision — `800-63A` is not `800-63-3`. A missing link costs a
+lookup; a wrong one sends the reader to the wrong document.
+
+What stays unresolved on a configured internal host is reported as missing, so
+`kb/graph.md` doubles as the list of what to import next:
+
+```
+| identifier | Referred to as |
+| `800-30`   | http://csrc.nist.gov/publications/nistpubs/800-30/sp800-30.pdf |
+| `800-53`   | http://csrc.nist.gov/publications/nistpubs/800-53-Rev2/... |
 ```
 
 ## Keeping it current
@@ -344,7 +372,7 @@ kb/graph.md     what exists, what is referenced but missing
 python -m unittest discover tests
 ```
 
-Eighty-four regression tests. Every one of them is a failure that actually
+Ninety-three regression tests. Every one of them is a failure that actually
 happened, most of them silent: a document overwritten by another with a similar
 title, one broken file aborting the whole import, an asset folder deleted along
 with hand-written notes, a half-written manifest from two concurrent runs.

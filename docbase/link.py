@@ -26,6 +26,7 @@ GRAPH = "kb/graph.md"
 
 RE_FRONTMATTER = re.compile(r"^---\n(.*?)\n---\n", re.S)
 from . import frontmatter
+from . import resolve as resolve_module
 RE_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", re.M)
 RE_MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
 PAGE_ID_TAIL = r"/.*?(?:/pages/(\d+)/|[?&]pageId=(\d+))"
@@ -48,57 +49,74 @@ def page_id_of(url, pattern=None):
     return (m.group(1) or m.group(2)) if m else None
 
 
+def _node(name):
+    """A mermaid-safe node id."""
+    return re.sub(r"[^A-Za-z0-9]", "_", name)
+
+
 def scan(sources_dir):
-    """{page_id: {file, title}} gathered from every document's frontmatter."""
-    registry = {}
+    """{file name: what is known about it} from every document's frontmatter."""
+    documents = {}
     for name in sorted(os.listdir(sources_dir)):
         if not name.endswith(".md") or name.startswith("_"):
             continue
         text = open(os.path.join(sources_dir, name), encoding="utf-8").read()
         fm = RE_FRONTMATTER.match(text)
-        if not fm:
-            continue
-        pid = frontmatter.read_id(fm.group(1))
-        if not pid:
-            continue
+        meta = fm.group(1) if fm else ""
         title = RE_TITLE.search(text)
-        registry[pid] = {
-            "file": name,
-            "title": title.group(1).strip() if title else name,
+        declared = re.search(r'title:\s*"(.+?)"', meta)
+        documents[name] = {
+            "page_id": frontmatter.read_id(meta),
+            "url": (re.search(r'source_url:\s*"(.*?)"', meta) or [None, ""])[1],
+            "source_file": (re.search(r'source_file:\s*"(.*?)"', meta) or [None, ""])[1],
+            "title": declared.group(1) if declared
+                     else (title.group(1).strip() if title else name),
         }
-    return registry
+    return documents
 
 
-def relink(text, self_id, registry, stats, pattern=None):
+def relink(text, self_name, resolver, stats, pattern=None,
+           is_internal=lambda url: False):
     """Rewrite the links inside one document."""
     def repl(m):
         label, url = m.group(1), m.group(2)
-        pid = page_id_of(url, pattern)
-        if not pid:
-            return m.group(0)                       # not a wiki page link
-        if pid == self_id:
+        if not url.startswith(("http://", "https://")):
+            return m.group(0)                       # already local
+        target = resolver.resolve(url, pattern, exclude=self_name)
+        if target:
+            anchor = RE_ANCHOR.search(unquote(url))
+            hint = ""
+            if anchor:
+                frag = re.sub(r"[:~].*$", "", anchor.group(1)).replace("id-", "")
+                frag = re.sub(r"[^\w\s-]", " ", frag, flags=re.UNICODE).strip()
+                if frag:
+                    hint = f' "{frag[:60]}"'
+            stats["linked"] += 1
+            stats["edges"].add((self_name, target))
+            return f"[{label}]({target}{hint})"
+
+        if resolver.resolve(url, pattern) == self_name:
             stats["self"] += 1
-            return label                            # self-link: drop the link
-        target = registry.get(pid)
-        if not target:
-            stats["missing"].setdefault(pid, set()).add(label[:60])
-            return m.group(0)                       # not imported yet: keep the URL
-        anchor = RE_ANCHOR.search(unquote(url))
-        hint = ""
-        if anchor:
-            frag = re.sub(r"[:~].*$", "", anchor.group(1)).replace("id-", "")
-            frag = re.sub(r"[^\w\s-]", " ", frag, flags=re.UNICODE).strip()
-            if frag:
-                hint = f' "{frag[:60]}"'
-        stats["linked"] += 1
-        stats["edges"].add((self_id, pid))
-        return f"[{label}]({target['file']}{hint})"
+            return label                            # a link back to itself
+
+        # "Missing" means a document this base ought to hold, not any link to
+        # the outside world. Without that distinction the list fills with DOI
+        # prefixes, dates and section numbers, and stops being read.
+        page_id = resolver.page_id_of(url, pattern) if pattern is not None else None
+        if page_id:
+            stats["missing"].setdefault(page_id, set()).add(label[:60])
+        elif is_internal(url):
+            found = resolve_module.identifiers(url)
+            if found:
+                key = sorted(found, key=len, reverse=True)[0]
+                stats["missing"].setdefault(key, set()).add(label[:60])
+        return m.group(0)
 
     return RE_MD_LINK.sub(repl, text)
 
 
 def run(sources=SOURCES, check=False, quiet=False, internal_hosts=(),
-        open_url=None, linkmap_path=None, graph_path=None):
+        linkmap_path=None, graph_path=None):
     """Rewrite cross-document links and regenerate the map.
 
     Output paths are explicit: resolving them against the current working
@@ -110,36 +128,32 @@ def run(sources=SOURCES, check=False, quiet=False, internal_hosts=(),
     # different hosts in one process would otherwise interfere, and a
     # long-running server is exactly such a process.
     pattern = page_pattern(internal_hosts)
-    host = internal_hosts[0] if internal_hosts else ""
-    if open_url is None:
-        def open_url(pid):
-            return (f"https://{host}/pages/viewpage.action?pageId={pid}"
-                    if host else f"(page id {pid})")
 
+    def is_internal(url):
+        return any(host in (url or "") for host in internal_hosts)
     class _A: pass
     args = _A(); args.sources = sources; args.check = check
 
-    registry = scan(args.sources)
+    documents = scan(args.sources)
     stats = {"linked": 0, "self": 0, "missing": {}, "edges": set()}
-    if not registry:
-        return registry, stats          # an empty base is a state, not an error
-    for pid, info in registry.items():
-        path = os.path.join(args.sources, info["file"])
+    if not documents:
+        return documents, stats         # an empty base is a state, not an error
+
+    resolver = resolve_module.Resolver(documents)
+    for name in sorted(documents):
+        path = os.path.join(args.sources, name)
         text = open(path, encoding="utf-8").read()
-        new = relink(text, pid, registry, stats, pattern)
+        new = relink(text, name, resolver, stats, pattern, is_internal)
         if new != text and not args.check:
             open(path, "w", encoding="utf-8").write(new)
 
     # linkmap.json is derived; it is never edited by hand.
     linkmap = {
         "_comment": "Generated by docbase. Do not edit by hand.",
-        "by_page_id": {
-            pid: f"{args.sources}/{i['file']}" for pid, i in sorted(registry.items())
-        },
-        "missing": {
-            pid: sorted(labels)
-            for pid, labels in sorted(stats["missing"].items())
-        },
+        "documents": {name: {k: v for k, v in info.items() if v}
+                      for name, info in sorted(documents.items())},
+        "missing": {key: sorted(labels)
+                    for key, labels in sorted(stats["missing"].items())},
     }
     if not args.check:
         os.makedirs(os.path.dirname(os.path.abspath(linkmap_path)), exist_ok=True)
@@ -148,26 +162,26 @@ def run(sources=SOURCES, check=False, quiet=False, internal_hosts=(),
 
     # graph.md is the human- and agent-readable map of the base.
     lines = ["# Base map", "",
-             "Generated by `docbase map`. Shows which documents exist and what",
+             "Generated by `docbase sync`. Shows which documents exist and what",
              "they reference.", "", "## Imported", "",
-             "| page id | Document | File |", "|---|---|---|"]
-    for pid, i in sorted(registry.items(), key=lambda kv: kv[1]["file"]):
-        lines.append(f"| `{pid}` | {i['title']} | [{i['file']}](sources/{i['file']}) |")
+             "| Document | File | id |", "|---|---|---|"]
+    for name, info in sorted(documents.items()):
+        lines.append(f"| {info['title']} | [{name}](sources/{name}) | "
+                     f"`{info.get('page_id') or '—'}` |")
 
     lines += ["", "## Referenced but not imported yet", ""]
     if stats["missing"]:
-        lines += ["| page id | Referred to as | Open |", "|---|---|---|"]
-        for pid, labels in sorted(stats["missing"].items()):
-            label = "; ".join(sorted(labels)[:3]).replace("|", "/") or "—"
-            lines.append(f"| `{pid}` | {label} | "
-                         f"{open_url(pid)} |")
+        lines += ["| identifier | Referred to as |", "|---|---|"]
+        for key, labels in sorted(stats["missing"].items()):
+            shown = "; ".join(sorted(labels)[:3]).replace("|", "/") or "—"
+            lines.append(f"| `{key}` | {shown} |")
     else:
         lines.append("Everything referenced is already available locally.")
 
     if stats["edges"]:
         lines += ["", "## Reference graph", "", "```mermaid", "graph LR"]
         for a, b in sorted(stats["edges"]):
-            lines.append(f'  {a}["{registry[a]["file"]}"] --> {b}["{registry[b]["file"]}"]')
+            lines.append(f'  {_node(a)}["{a}"] --> {_node(b)}["{b}"]')
         lines.append("```")
     lines.append("")
 
@@ -178,13 +192,11 @@ def run(sources=SOURCES, check=False, quiet=False, internal_hosts=(),
 
     if not quiet:
         mode = "checked" if args.check else "written"
-        print(f"[{mode}] documents: {len(registry)}  "
+        print(f"[{mode}] documents: {len(documents)}  "
               f"links localized: {stats['linked']}  "
               f"self-links dropped: {stats['self']}  "
-              f"pages not imported: {len(stats['missing'])}", file=sys.stderr)
-        for pid, labels in sorted(stats["missing"].items()):
-            print(f"  ! {pid}  {'; '.join(sorted(labels)[:2])}", file=sys.stderr)
-    return registry, stats
+              f"references not imported: {len(stats['missing'])}", file=sys.stderr)
+    return documents, stats
 
 
 def main():
@@ -192,8 +204,8 @@ def main():
     ap.add_argument("--sources", default=SOURCES)
     ap.add_argument("--check", action="store_true", help="report only, change nothing")
     args = ap.parse_args()
-    registry, _ = run(sources=args.sources, check=args.check)
-    if not registry:
+    documents, _ = run(sources=args.sources, check=args.check)
+    if not documents:
         raise SystemExit(f"no documents found in {args.sources}")
 
 

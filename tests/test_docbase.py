@@ -1110,3 +1110,89 @@ class TestRealDocumentShapes(BaseCase):
         name = self.text_files()[0]
         self.assertTrue(evaluate._marker_present(
             self.cfg, "The cancellation fee is 150 EUR for a late request.", name))
+
+
+class TestLinkResolution(BaseCase):
+    """Cross-document linking beyond one wiki's URL shape.
+
+    It used to understand exactly one thing — a page id — so a standards body
+    linking to a landing page, a docs site linking to a file, or a handbook
+    citing a document number all went unresolved, and the base knew nothing
+    about how its own documents relate.
+    """
+
+    DOCS = {
+        "zero-trust-architecture.md": {"source_file": "nist-sp-800-207.pdf",
+                                       "title": "Zero Trust Architecture"},
+        "digital-identity-guidelines.md": {"source_file": "nist-sp-800-63-3.pdf",
+                                           "title": "Digital Identity Guidelines"},
+        "billing.md": {"page_id": "4242",
+                       "url": "https://wiki.example.com/pages/viewpage.action?pageId=4242"},
+    }
+
+    def _resolver(self, documents=None):
+        from docbase.resolve import Resolver
+        return Resolver(documents or self.DOCS)
+
+    def _pattern(self):
+        from docbase.link import page_pattern
+        return page_pattern(("wiki.example.com",))
+
+    def test_resolves_a_wiki_page_id(self):
+        self.assertEqual(
+            self._resolver().resolve(
+                "https://wiki.example.com/pages/viewpage.action?pageId=4242",
+                self._pattern()),
+            "billing.md")
+
+    def test_resolves_a_direct_file_link(self):
+        self.assertEqual(
+            self._resolver().resolve(
+                "https://nvlpubs.nist.gov/nistpubs/sp/NIST.SP.800-207.pdf"),
+            "zero-trust-architecture.md")
+
+    def test_resolves_a_landing_page_by_document_number(self):
+        self.assertEqual(
+            self._resolver().resolve(
+                "https://www.nist.gov/iam/nist-special-publication-800-63-digital-identity"),
+            "digital-identity-guidelines.md")
+
+    def test_a_revision_answers_a_reference_to_the_family(self):
+        self.assertEqual(self._resolver().resolve("https://doi.org/10.6028/NIST.SP.800-63"),
+                         "digital-identity-guidelines.md")
+
+    def test_a_letter_suffix_is_a_different_document(self):
+        """800-63A is another volume, not a revision. Treating it as the
+        parent would send the reader to the wrong text."""
+        self.assertIsNone(
+            self._resolver().resolve("https://doi.org/10.6028/NIST.SP.800-63A"))
+
+    def test_an_ambiguous_identifier_resolves_to_nothing(self):
+        documents = {
+            "one.md": {"source_file": "policy-12-3.pdf", "title": "One"},
+            "two.md": {"source_file": "guide-12-3.pdf", "title": "Two"},
+        }
+        self.assertIsNone(self._resolver(documents).resolve("https://x.example/12-3"))
+
+    def test_dates_and_doi_prefixes_are_not_identifiers(self):
+        from docbase.resolve import identifiers
+        self.assertEqual(identifiers("annual-report-2024"), set())
+        self.assertNotIn("10-6028", identifiers("NIST.SP.800-207"))
+
+    def test_a_document_never_links_to_itself(self):
+        resolver = self._resolver()
+        self.assertIsNone(resolver.resolve(
+            "https://nvlpubs.nist.gov/NIST.SP.800-207.pdf",
+            exclude="zero-trust-architecture.md"))
+
+    def test_missing_is_only_tracked_for_internal_hosts(self):
+        """Otherwise the list fills with DOI prefixes and dates, and stops
+        being read."""
+        link = ('<p>See <a href="https://doi.org/10.1109/MITP.2016.84">a paper</a> '
+                'and <a href="https://wiki.example.com/pages/viewpage.action?pageId=77">'
+                'a policy</a>.</p>')
+        self.drop("a.html", page(1, "Handbook", "Body text.", link))
+        report = self.sync(quiet=True)
+        missing = report["link"]["missing"]
+        self.assertIn("77", missing)
+        self.assertNotIn("10-1109", missing)
