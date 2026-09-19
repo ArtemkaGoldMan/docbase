@@ -1196,3 +1196,66 @@ class TestLinkResolution(BaseCase):
         missing = report["link"]["missing"]
         self.assertIn("77", missing)
         self.assertNotIn("10-1109", missing)
+
+
+class TestUnderlinedHeadings(BaseCase):
+    """reStructuredText and plain text underline their headings.
+
+    Passing such a file through untouched — which is what "supporting .rst"
+    amounted to — loses its structure entirely: a 49 KB style guide arrived
+    with three headings, so the map showed nothing and retrieval had no
+    section titles to weigh.
+    """
+
+    RST = """PEP: 8
+Title: Style Guide for Python Code
+Author: Guido van Rossum
+
+Introduction
+============
+
+This document gives coding conventions.
+
+Code Lay-out
+============
+
+Indentation
+-----------
+
+Use four spaces per indentation level.
+
+Maximum Line Length
+-------------------
+
+Limit all lines to a maximum of 79 characters.
+"""
+
+    def test_underlined_headings_become_markdown(self):
+        from docbase.importers.text import underlined_headings
+        converted = underlined_headings(self.RST)
+        self.assertIn("# Introduction", converted)
+        self.assertIn("## Indentation", converted)
+        self.assertNotIn("=====", converted)
+
+    def test_levels_follow_first_appearance(self):
+        from docbase.importers.text import underlined_headings
+        converted = underlined_headings(self.RST)
+        self.assertIn("# Code Lay-out", converted)
+        self.assertIn("## Maximum Line Length", converted)
+
+    def test_a_declared_title_is_used(self):
+        self.drop("pep-0008.rst", self.RST)
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["style-guide-for-python-code.md"])
+
+    def test_sections_become_findable(self):
+        self.drop("pep-0008.rst", self.RST)
+        self.sync(quiet=True)
+        hits = Index(self.cfg).build().search("maximum line length characters limit")
+        self.assertTrue(hits)
+        self.assertIn("Maximum Line Length", hits[0][3])
+
+    def test_a_row_of_dashes_inside_prose_is_not_a_heading(self):
+        from docbase.importers.text import underlined_headings
+        text = "Some prose here.\n\n-------\n\nMore prose.\n"
+        self.assertNotIn("# Some prose here.", underlined_headings(text))

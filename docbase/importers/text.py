@@ -22,6 +22,63 @@ RE_MD_LINK = re.compile(r"\[[^\]]*\]\((https?://[^)\s]+)\)")
 RE_BARE_URL = re.compile(r"(?<![(\[<])(https?://[^\s)\]<>]+)")
 RE_TITLE = re.compile(r"^#\s+(.+)$", re.M)
 
+#: reStructuredText and many plain-text documents underline their headings
+#: instead of prefixing them. Passing such a file through untouched loses its
+#: structure completely: a 49 KB style guide arrived with three headings.
+UNDERLINE_CHARS = "=-`:'\"~^_*+#<>"
+
+#: A field list at the top of the document, as PEPs and many RST files use.
+RE_FIELD = re.compile(r"^([A-Z][A-Za-z-]{2,20}):\s+(.+)$")
+
+
+def underlined_headings(text):
+    """Turn underlined headings into markdown ones.
+
+    Levels follow first appearance: the first underline character seen is the
+    top level, the next new one the level below, and so on — which is exactly
+    how reStructuredText defines them.
+    """
+    lines = text.splitlines()
+    order, out, skip = [], [], False
+
+    for index, line in enumerate(lines):
+        if skip:
+            skip = False
+            continue
+        nxt = lines[index + 1] if index + 1 < len(lines) else ""
+        stripped = nxt.strip()
+        is_underline = (
+            len(stripped) >= 3
+            and stripped[0] in UNDERLINE_CHARS
+            and stripped == stripped[0] * len(stripped)
+            and line.strip()
+            and len(stripped) >= len(line.strip()) - 2
+            and not line.strip()[0] in UNDERLINE_CHARS
+        )
+        if is_underline:
+            char = stripped[0]
+            if char not in order:
+                order.append(char)
+            level = min(order.index(char) + 1, 4)
+            out.append("#" * level + " " + line.strip())
+            skip = True                    # drop the underline itself
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def declared_title(text):
+    """A title the document states about itself, as in an RST field list."""
+    for line in text.splitlines()[:40]:
+        if not line.strip():
+            continue
+        match = RE_FIELD.match(line)
+        if match and match.group(1).lower() == "title":
+            return match.group(2).strip()
+        if not match:
+            break                          # the field list has ended
+    return ""
+
 
 def _read(path):
     for encoding in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
@@ -54,7 +111,12 @@ def convert(path):
         # second copy of the same document.
         doc_id = frontmatter.derive_id(body.strip())
 
-    if not RE_TITLE.search(body):
+    stated = declared_title(body)
+    body = underlined_headings(body)
+
+    if stated:
+        body = f"# {stated}\n\n{body.lstrip()}"
+    elif not RE_TITLE.search(body):
         title = os.path.splitext(name)[0].replace("-", " ").replace("_", " ")
         body = f"# {title.strip().capitalize()}\n\n{body.lstrip()}"
 
