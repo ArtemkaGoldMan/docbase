@@ -17,12 +17,16 @@ import re
 import shutil
 import sys
 import time
+import zipfile
 
+from . import frontmatter
 from . import config as config_module
 from . import languages as languages_module
 from . import link as link_module
 
-DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".mhtml", ".mht")
+DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".mhtml", ".mht",
+                  ".md", ".markdown", ".txt", ".rst", ".text")
+ARCHIVE_EXTENSIONS = (".zip",)
 
 
 # ---------------------------------------------------------------- helpers
@@ -65,14 +69,13 @@ def write_manifest(path, data):
 
 
 def page_id_of(markdown):
-    match = re.search(r'confluence_page_id:\s*"?(\d*)"?', markdown)
-    return match.group(1) if match else ""
+    return frontmatter.read_id(markdown)
 
 
 def page_id_of_file(path):
     if not os.path.isfile(path):
         return None
-    return page_id_of(open(path, encoding="utf-8").read(400))
+    return frontmatter.read_id_from(path)
 
 
 # ------------------------------------------------------------ collecting
@@ -81,6 +84,8 @@ def collect_dropped(cfg, log):
     layout = cfg.layout
     layout.ensure("originals")
     originals = layout.path("originals")
+
+    unpack_archives(cfg, log)
 
     dropped = [n for n in sorted(os.listdir(layout.root))
                if n.lower().endswith(DOC_EXTENSIONS)]
@@ -110,6 +115,45 @@ def collect_dropped(cfg, log):
         os.rename(source, target)
         known[digest] = os.path.basename(target)
         log.append(f"{name} -> {os.path.relpath(target, layout.root)}")
+
+
+def unpack_archives(cfg, log):
+    """A space export arrives as one zip holding hundreds of pages.
+
+    Unpacking by hand and dropping the files one at a time is the kind of
+    friction that stops a base from being kept current at all.
+    """
+    layout = cfg.layout
+    archives = [n for n in sorted(os.listdir(layout.root))
+                if n.lower().endswith(ARCHIVE_EXTENSIONS)]
+    for name in archives:
+        path = os.path.join(layout.root, name)
+        taken = 0
+        try:
+            with zipfile.ZipFile(path) as archive:
+                for member in archive.namelist():
+                    if member.endswith("/") or not member.lower().endswith(DOC_EXTENSIONS):
+                        continue
+                    # Flatten: a member path is untrusted input, and nested
+                    # directories would escape the base with ../ entries.
+                    flat = os.path.basename(member)
+                    if not flat:
+                        continue
+                    target = os.path.join(layout.root, flat)
+                    counter = 1
+                    stem, suffix = os.path.splitext(flat)
+                    while os.path.exists(target):
+                        target = os.path.join(layout.root, f"{stem}-{counter}{suffix}")
+                        counter += 1
+                    with archive.open(member) as src, open(target, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    taken += 1
+        except (zipfile.BadZipFile, OSError) as error:
+            log.append(f"could not open {name}: {str(error)[:60]}")
+            continue
+        os.remove(path)
+        log.append(f"unpacked {name}: {taken} documents"
+                   if taken else f"{name} held nothing importable")
 
 
 # -------------------------------------------------------------- naming
@@ -186,7 +230,7 @@ def heal_card_sources(cfg, manifest, log):
                 continue
             path = os.path.join(folder, card)
             text = open(path, encoding="utf-8").read()
-            page = re.search(r'source_page_id:\s*"?(\d+)"?', text)
+            page = re.search(r'(?:source_id|source_page_id):\s*"?([\w-]+)"?', text)
             current = re.search(r"source:\s*\S*?([\w.-]+\.md)", text)
             if not page or not current:
                 continue

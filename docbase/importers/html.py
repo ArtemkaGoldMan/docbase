@@ -19,6 +19,8 @@ from urllib.parse import unquote
 
 from bs4 import BeautifulSoup
 
+from .. import frontmatter
+
 RE_CONFLUENCE_PAGE = re.compile(r"(?:/pages/(\d+)/|[?&]pageId=(\d+))")
 
 # Wiki chrome that only gets in the way of retrieval.
@@ -177,15 +179,11 @@ def convert(path):
 
 def build_markdown(path, blocks, links, page_id, is_internal=lambda url: False):
     self_url = next((u for u in links if page_id and page_id in u), "")
-    head = [
-        "---",
-        f'source_pdf: "{os.path.basename(path)}"',
-        f'confluence_page_id: "{page_id}"',
-        f'confluence_url: "{self_url}"',
-        f"extracted: {dt.date.today().isoformat()}",
-        "---",
-        "",
-    ]
+    head = frontmatter.block(
+        os.path.basename(path),
+        page_id or frontmatter.derive_id(os.path.basename(path)),
+        url=self_url,
+        extracted=dt.date.today().isoformat())
     internal, external = [], []
     for url in sorted(links):
         m = RE_CONFLUENCE_PAGE.search(url)

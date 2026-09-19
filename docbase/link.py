@@ -25,7 +25,7 @@ LINKMAP = "kb/linkmap.json"
 GRAPH = "kb/graph.md"
 
 RE_FRONTMATTER = re.compile(r"^---\n(.*?)\n---\n", re.S)
-RE_PAGE_ID = re.compile(r'confluence_page_id:\s*"?(\d+)"?')
+from . import frontmatter
 RE_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", re.M)
 RE_MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
 PAGE_ID_TAIL = r"/.*?(?:/pages/(\d+)/|[?&]pageId=(\d+))"
@@ -58,11 +58,11 @@ def scan(sources_dir):
         fm = RE_FRONTMATTER.match(text)
         if not fm:
             continue
-        pid = RE_PAGE_ID.search(fm.group(1))
+        pid = frontmatter.read_id(fm.group(1))
         if not pid:
             continue
         title = RE_TITLE.search(text)
-        registry[pid.group(1)] = {
+        registry[pid] = {
             "file": name,
             "title": title.group(1).strip() if title else name,
         }

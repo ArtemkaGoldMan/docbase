@@ -97,11 +97,16 @@ docbase sync
 docbase find "how late can I submit a claim"
 ```
 
-Accepted exports: `.pdf`, `.html`, `.htm`, `.doc` (Word export — MHTML inside),
-`.mhtml`.
+| Format | Notes |
+|---|---|
+| `.md` `.markdown` `.txt` `.rst` | already text — imported as written |
+| `.html` `.htm` | best for table-heavy pages: a row stays a row |
+| `.doc` `.mhtml` | Word export (MHTML inside); keeps hidden macro tabs |
+| `.pdf` | works everywhere; links and reading order are recovered |
+| `.zip` | a space export — unpacked and imported in one step |
 
-PDF works everywhere. HTML and Word are better for table-heavy pages: a row
-stays a row, and macro tabs that PDF flattens away survive.
+PDF is universal but lossy by nature. HTML and Word keep tables and macro tabs
+that PDF flattens away. Markdown passes through untouched.
 
 ## Commands
 
@@ -138,13 +143,14 @@ and silent when nothing changed.
 ## How it works
 
 ```
-  exported file                  you drop it anywhere in the base folder
+  exported file or .zip          you drop it anywhere in the base folder
         │
         ▼
-  kb/originals/                  deduplicated by content hash, not by name
+  kb/originals/                  archives unpacked, duplicates found by content
         │
         ├── .pdf   ─────────►  link annotations · XY-cut · font-size headings
-        └── .html/.doc ─────►  tables stay tables · hidden macro tabs survive
+        ├── .html/.doc ─────►  tables stay tables · hidden macro tabs survive
+        └── .md/.txt ───────►  passed through, given an identity
         │
         ▼
   kb/text/*.md                   frontmatter carries the page id

@@ -487,3 +487,80 @@ class TestLanguages(BaseCase):
             "rejseafregning-paa-aarsbasis")
         # …while unmapped accents still fall back to decomposition.
         self.assertEqual(languages.slugify("procédure", {"å": "aa"}), "procedure")
+
+
+class TestTextAndArchives(BaseCase):
+    """Documentation that is already text, and exports that arrive zipped.
+
+    A tool that converts *into* markdown could not accept markdown, which left
+    out the most common case there is: docs-as-code repositories, Obsidian
+    vaults, Notion and GitBook exports.
+    """
+
+    def test_markdown_is_imported_as_is(self):
+        self.drop("onboarding.md",
+                  "# Onboarding\n\nNew hires get a laptop within three days.\n")
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["onboarding.md"])
+        body = open(os.path.join(self.cfg.layout.path("text"), "onboarding.md"),
+                    encoding="utf-8").read()
+        self.assertIn("New hires get a laptop within three days.", body)
+        self.assertIn("source_id:", body)
+
+    def test_plain_text_gets_a_title_from_its_file_name(self):
+        self.drop("expense_rules.txt", "Anything above 500 EUR needs approval.\n")
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["expense-rules.md"])
+        body = open(os.path.join(self.cfg.layout.path("text"), "expense-rules.md"),
+                    encoding="utf-8").read()
+        self.assertIn("# Expense rules", body)
+
+    def test_the_same_markdown_under_another_name_is_not_forked(self):
+        text = "# Onboarding\n\nNew hires get a laptop within three days.\n"
+        self.drop("a.md", text)
+        self.sync(quiet=True)
+        self.drop("b.md", text)
+        self.sync(quiet=True)
+        self.assertEqual(len(self.text_files()), 1)
+
+    def test_existing_frontmatter_identity_is_respected(self):
+        self.drop("policy.md",
+                  '---\nsource_id: "kept-identity"\n---\n\n# Policy\n\nBody text here.\n')
+        self.sync(quiet=True)
+        body = open(os.path.join(self.cfg.layout.path("text"), "policy.md"),
+                    encoding="utf-8").read()
+        self.assertIn('source_id: "kept-identity"', body)
+
+    def _zip(self, name, members):
+        import zipfile
+        path = os.path.join(self.root, name)
+        with zipfile.ZipFile(path, "w") as archive:
+            for member, content in members.items():
+                archive.writestr(member, content)
+        return path
+
+    def test_an_archive_is_unpacked_and_imported(self):
+        self._zip("space-export.zip", {
+            "export/security.md": "# Security policy\n\nPasswords rotate every 90 days.\n",
+            "export/incidents.md": "# Incident response\n\nSeverity one pages on-call.\n",
+            "export/logo.png": "not a document",
+        })
+        report = self.sync(quiet=True)
+        self.assertIn("security-policy.md", self.text_files())
+        self.assertIn("incident-response.md", self.text_files())
+        self.assertTrue(any("unpacked" in line for line in report["log"]))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "space-export.zip")))
+
+    def test_archive_members_cannot_escape_the_base(self):
+        self._zip("evil.zip", {"../../escaped.md": "# Escaped\n\nShould stay inside.\n"})
+        self.sync(quiet=True)
+        outside = os.path.abspath(os.path.join(self.root, "..", "..", "escaped.md"))
+        self.assertFalse(os.path.exists(outside), "an archive member escaped the base")
+
+    def test_a_damaged_archive_is_reported_not_fatal(self):
+        with open(os.path.join(self.root, "broken.zip"), "wb") as handle:
+            handle.write(b"definitely not a zip")
+        self.drop("good.md", "# Good\n\nThis document must still import.\n")
+        report = self.sync(quiet=True)
+        self.assertIn("good.md", self.text_files())
+        self.assertTrue(any("could not open" in line for line in report["log"]))

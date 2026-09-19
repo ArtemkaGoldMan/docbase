@@ -11,6 +11,9 @@ import os
 
 from .. import config as config_module
 
+#: Files that are already text need no conversion, only an identity.
+TEXT_EXTENSIONS = (".md", ".markdown", ".txt", ".rst", ".text")
+
 
 def convert_document(path, cfg=None):
     """Exported file -> (markdown, asset slug).
@@ -33,6 +36,11 @@ def convert_document(path, cfg=None):
         blocks, links = pdf.convert(path, assets_dir=assets_dir, slug=slug,
                                     url_prefix=prefix)
         return pdf.build_markdown(path, blocks, links, is_internal), slug
+
+    if extension in TEXT_EXTENSIONS:
+        from . import text
+        body, links, doc_id = text.convert(path)
+        return text.build_markdown(path, body, links, doc_id, is_internal), ""
 
     from . import html
     blocks, links, page_id = html.convert(path)

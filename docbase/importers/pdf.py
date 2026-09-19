@@ -28,6 +28,8 @@ import logging
 import pdfplumber
 from pypdf import PdfReader
 
+from .. import frontmatter
+
 # pdfminer warns about fonts on every page; the warnings are harmless.
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 logging.getLogger("pdfplumber").setLevel(logging.ERROR)
@@ -297,15 +299,11 @@ def build_markdown(pdf_path, blocks, links, is_internal=lambda url: False):
             self_url = url
             break
 
-    head = [
-        "---",
-        f'source_pdf: "{os.path.basename(pdf_path)}"',
-        f'confluence_page_id: "{page_id}"',
-        f'confluence_url: "{self_url}"',
-        f"extracted: {dt.date.today().isoformat()}",
-        "---",
-        "",
-    ]
+    head = frontmatter.block(
+        os.path.basename(pdf_path),
+        page_id or frontmatter.derive_id(os.path.basename(pdf_path)),
+        url=self_url,
+        extracted=dt.date.today().isoformat())
 
     internal, external = [], []
     for url, page in sorted(links.items(), key=lambda kv: kv[1]):
