@@ -217,8 +217,15 @@ class Index:
         if not wanted or not self.chunks:
             return []
 
-        unknown = math.log(1 + len(self.chunks))
-        budget = sum(self.idf.get(w, unknown) for w in wanted) or 1.0
+        # Confidence is measured against the best score this query could
+        # reach, not against an absolute ceiling. Charging unknown words to
+        # the denominator made every hit look weak on a small corpus, where
+        # few words are common enough to be "known" in the first place.
+        known = {w for w in wanted if w in self.idf}
+        budget = sum(self.idf[w] for w in known) or 1.0
+        # A query whose words are mostly absent from the corpus is a miss,
+        # however well the few remaining words happen to match.
+        known_ratio = len(known) / len(wanted)
         settings = self.cfg.search
 
         hits = []
@@ -231,8 +238,8 @@ class Index:
                       + settings.heading_weight * sum(self.idf.get(w, 0) for w in in_head))
             coverage = gained / budget
             density = len(in_body) / max(len(body_stems), 1)
-            hits.append((coverage + settings.density_weight * density,
-                         name, line_no, heading, body))
+            score = (coverage + settings.density_weight * density) * known_ratio
+            hits.append((score, name, line_no, heading, body))
         hits.sort(key=lambda hit: (-hit[0], hit[1], hit[2]))
         return hits[:limit]
 
