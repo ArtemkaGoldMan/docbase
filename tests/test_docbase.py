@@ -403,3 +403,74 @@ class TestEvaluation(BaseCase):
         with contextlib.redirect_stdout(io.StringIO()):
             code = evaluate.generate(self.cfg, count=5)
         self.assertEqual(code, 1)
+
+
+class TestLanguages(BaseCase):
+    """Names and stopwords must work outside English and Ukrainian.
+
+    Before this was data-driven, `Zgłoszenie wydatków` became
+    `zg-oszenie-wydatk-w` and every Greek, Japanese or Arabic title collapsed
+    to the same placeholder, so unrelated documents overwrote each other.
+    """
+
+    def test_accented_latin_survives(self):
+        from docbase import languages
+        cases = {
+            "Note de frais — procédure": "note-de-frais-procedure",
+            "Zgłoszenie wydatków": "zgloszenie-wydatkow",
+            "Šablona výdajů": "sablona-vydaju",
+            "Reisekostenabrechnung": "reisekostenabrechnung",
+        }
+        for title, expected in cases.items():
+            self.assertEqual(languages.slugify(title), expected)
+
+    def test_other_scripts_transliterate(self):
+        from docbase import languages
+        self.assertEqual(languages.slugify("Витрати та звіти"), "vytraty-ta-zvity")
+        self.assertEqual(languages.slugify("Πολιτική εξόδων"), "politiki-exodon")
+
+    def test_untransliterable_titles_stay_distinct(self):
+        from docbase import languages
+        slugs = [languages.slugify(t) for t in ("経費精算", "出張規程",
+                                                "سياسة النفقات", "נהלי נסיעות")]
+        self.assertEqual(len(set(slugs)), len(slugs),
+                         "titles in unsupported scripts collided")
+        self.assertEqual(slugs, [languages.slugify(t) for t in ("経費精算", "出張規程",
+                                                                "سياسة النفقات", "נהלי נסיעות")],
+                         "slugs must be stable across runs")
+
+    def test_several_languages_can_be_active_at_once(self):
+        config_module.write_default(self.root)
+        path = os.path.join(self.root, config_module.CONFIG_NAME)
+        data = json.load(open(path, encoding="utf-8"))
+        data["language"] = ["en", "de"]
+        json.dump(data, open(path, "w", encoding="utf-8"))
+
+        cfg = config_module.load(self.root)
+        self.assertEqual(cfg.languages, ("en", "de"))
+        self.assertIn("the", cfg.stopwords)
+        self.assertIn("welche", cfg.stopwords)
+
+    def test_a_user_can_add_a_language_without_touching_the_code(self):
+        folder = os.path.join(self.root, "kb", "languages")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "xx.json"), "w", encoding="utf-8") as handle:
+            json.dump({"stopwords": ["zzq", "wwq"],
+                       "translit": {"ǅ": "dz"}}, handle)
+
+        path = os.path.join(self.root, config_module.CONFIG_NAME)
+        data = json.load(open(path, encoding="utf-8"))
+        data["language"] = ["xx"]
+        json.dump(data, open(path, "w", encoding="utf-8"))
+
+        cfg = config_module.load(self.root)
+        self.assertIn("zzq", cfg.stopwords)
+        self.assertEqual(cfg.slug("ǅungla"), "dzungla")
+
+    def test_a_damaged_language_file_is_ignored(self):
+        folder = os.path.join(self.root, "kb", "languages")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "yy.json"), "w", encoding="utf-8") as handle:
+            handle.write("{ not json")
+        cfg = config_module.load(self.root)
+        self.assertTrue(cfg.stopwords)          # still usable

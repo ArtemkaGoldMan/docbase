@@ -19,17 +19,16 @@ import sys
 import time
 
 from . import config as config_module
+from . import languages as languages_module
 from . import link as link_module
 
 DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".mhtml", ".mht")
 
 
 # ---------------------------------------------------------------- helpers
-def slugify(text, translit, fallback="document"):
-    text = text.lower().strip()
-    out = "".join(translit.get(ch, ch) for ch in text)
-    out = re.sub(r"[^a-z0-9]+", "-", out).strip("-")
-    return out[:48].strip("-") or fallback
+def slugify(text, extra_map=None, fallback="document"):
+    """Kept as a module-level helper; the logic lives in `languages`."""
+    return languages_module.slugify(text, extra_map, fallback)
 
 
 def quick_stat(path):
@@ -103,7 +102,7 @@ def collect_dropped(cfg, log):
             log.append(f"{name} is already in the base as {known[digest]}; removed the copy")
             continue
         extension = os.path.splitext(name)[1].lower()
-        base = os.path.join(originals, slugify(os.path.splitext(name)[0], cfg.translit))
+        base = os.path.join(originals, cfg.slug(os.path.splitext(name)[0]))
         target, counter = base + extension, 1
         while os.path.exists(target):
             target = f"{base}-{counter}{extension}"
@@ -298,8 +297,7 @@ def run(cfg=None, quiet=False, force=False):
         out_name = (known or {}).get("out") or text_by_page_id(cfg, page_id)
         if not out_name:
             title = re.search(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", markdown, re.M)
-            base = slugify(title.group(1) if title else os.path.splitext(name)[0],
-                           cfg.translit)
+            base = cfg.slug(title.group(1) if title else os.path.splitext(name)[0])
             out_name = free_text_name(cfg, base, page_id)
 
         markdown = _align_assets(cfg, slug, out_name, markdown)

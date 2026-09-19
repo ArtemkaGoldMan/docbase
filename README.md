@@ -232,6 +232,34 @@ twice.
 > Extracted screenshots can contain personal data. `kb/` is git-ignored for
 > exactly this reason. Think before copying it anywhere.
 
+## Languages
+
+Two things depend on the language of your corpus, and both are data rather than
+code: **stopwords**, which keep question scaffolding out of the ranking, and
+**transliteration**, which turns a document title into a file name.
+
+Built in: `de` `en` `es` `fr` `it` `nl` `pl` `pt` `uk`
+
+Accented Latin needs no table of its own — text is decomposed before mapping,
+so Czech, Hungarian, Romanian and Turkish already work. Ukrainian Cyrillic and Greek have
+an explicit table. Scripts without one (CJK, Arabic, Hebrew) keep a digest of the
+title as the file name, so documents stay distinct rather than colliding.
+
+```json
+{ "language": ["uk", "en"] }
+```
+
+Several at once, because mixed corpora are the norm: Ukrainian policies quote
+English product names, German handbooks quote English job titles.
+
+Adding one takes no code — drop `kb/languages/<code>.json` into your own base:
+
+```json
+{ "stopwords": ["og", "eller", "men", "hvis"], "translit": { "å": "aa", "ø": "oe" } }
+```
+
+Full guide: [docs/LANGUAGES.md](docs/LANGUAGES.md).
+
 ## Layout
 
 ```
@@ -284,7 +312,8 @@ Stated plainly, because knowing where a tool stops is part of using it.
   *"alarm service"* — needs a second search. The low-confidence path exists
   precisely for this.
 - **Stemming is a fixed-length prefix.** Crude; works well for inflected
-  languages, and occasionally conflates unrelated words.
+  languages, and occasionally conflates unrelated words. There is no
+  lemmatiser, so no language gets true morphological analysis.
 - **The PDF importer is tuned for wiki exports.** Other layouts may need
   different `MIN_GUTTER` / `MIN_ROW_GAP` thresholds.
 - **Hidden macro tabs are absent from PDF.** Only the active tab renders. Use an

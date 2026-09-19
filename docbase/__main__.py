@@ -132,6 +132,17 @@ def cmd_doctor(args, cfg):
         except ImportError:
             print(f"{module:<12}MISSING — run: pip install pypdf pdfplumber beautifulsoup4")
             ok = False
+    from . import languages as languages_module
+    custom, _ = languages_module.load_custom(cfg.layout.root)
+    active = ", ".join(cfg.languages)
+    print(f"Languages   {active}"
+          + (f"  (custom: {', '.join(sorted(custom))})" if custom else ""))
+    unknown = [c for c in cfg.languages
+               if c not in languages_module.STOPWORDS and c not in custom]
+    if unknown:
+        print(f"            ! no stopwords for: {', '.join(unknown)} — "
+              f"see docs/LANGUAGES.md")
+        print(f"            built in: {', '.join(languages_module.available())}")
     print(f"Base root   {cfg.layout.root}")
     for which in ("originals", "text", "assets", "cards"):
         path = cfg.layout.path(which)

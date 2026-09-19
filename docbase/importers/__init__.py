@@ -24,9 +24,8 @@ def convert_document(path, cfg=None):
 
     if extension == ".pdf":
         from . import pdf
-        from ..sync import slugify
 
-        slug = slugify(os.path.splitext(os.path.basename(path))[0], cfg.translit)
+        slug = cfg.slug(os.path.splitext(os.path.basename(path))[0])
         assets_dir = os.path.join(cfg.layout.path("assets"), slug)
         pdf.MIN_IMG_BYTES = cfg.importer.min_image_bytes
         prefix = os.path.relpath(cfg.layout.path("assets"),

@@ -14,41 +14,9 @@ import json
 import os
 from dataclasses import dataclass, field, replace
 
+from . import languages
+
 CONFIG_NAME = "docbase.json"
-
-# Ukrainian Cyrillic -> Latin, used to build safe file names.
-CYRILLIC_TRANSLIT = {
-    "а": "a", "б": "b", "в": "v", "г": "h", "ґ": "g", "д": "d", "е": "e",
-    "є": "ie", "ж": "zh", "з": "z", "и": "y", "і": "i", "ї": "i", "й": "i",
-    "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
-    "с": "s", "т": "t", "у": "u", "ф": "f", "х": "kh", "ц": "ts", "ч": "ch",
-    "ш": "sh", "щ": "shch", "ь": "", "ю": "iu", "я": "ia",
-}
-
-# Question words and modals matter here as much as articles: a query like
-# "how long can I wait" is mostly scaffolding, and scoring it as content
-# drags the confidence of correct answers below the threshold.
-STOPWORDS = {
-    "en": {
-        "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "from",
-        "is", "are", "was", "were", "be", "been", "at", "by", "with", "as",
-        "it", "its", "that", "this", "these", "those", "there", "here",
-        "how", "what", "when", "where", "which", "why", "who", "whom",
-        "can", "could", "do", "does", "did", "should", "must", "may", "might",
-        "will", "would", "shall", "if", "not", "no", "yes", "but", "than",
-        "i", "me", "my", "we", "our", "you", "your", "they", "their",
-        "have", "has", "had", "am", "any", "all", "some", "about",
-    },
-    "uk": {
-        "як", "що", "чи", "для", "при", "від", "або", "але", "це", "не",
-        "на", "по", "до", "за", "у", "в", "з", "із", "та", "і", "й", "а",
-        "чого", "кого", "коли", "де", "куди", "хто", "який", "яка", "яке",
-        "які", "якщо", "щоб", "бо", "теж", "також", "ще", "вже", "так",
-        "ні", "мені", "мене", "ми", "ви", "вам", "вони", "їх", "його", "її",
-        "треба", "потрібно", "можна", "може", "бути", "буде", "був", "була",
-    },
-}
-
 
 @dataclass(frozen=True)
 class Layout:
@@ -94,17 +62,39 @@ class Config:
     layout: Layout
     search: Search = field(default_factory=Search)
     importer: Importer = field(default_factory=Importer)
-    language: str = "en"
+    #: One code, or several for a mixed-language corpus.
+    languages: tuple = ("en",)
     #: Extra stopwords on top of the language defaults.
     extra_stopwords: frozenset = frozenset()
 
     @property
+    def language(self):
+        """The primary language, for callers that want a single code."""
+        return self.languages[0] if self.languages else "en"
+
+    @property
+    def _custom(self):
+        return languages.load_custom(self.layout.root)
+
+    @property
     def stopwords(self):
-        return frozenset(STOPWORDS.get(self.language, set())) | self.extra_stopwords
+        custom_stop, _ = self._custom
+        merged = dict(languages.STOPWORDS)
+        merged.update(custom_stop)
+        words = set(self.extra_stopwords)
+        for code in self.languages:
+            if code in merged:
+                words |= frozenset(merged[code].split())
+        return frozenset(words)
 
     @property
     def translit(self):
-        return CYRILLIC_TRANSLIT
+        """Extra character mappings contributed by user language files."""
+        _, custom_translit = self._custom
+        return custom_translit
+
+    def slug(self, text, fallback="document"):
+        return languages.slugify(text, self.translit, fallback)
 
     def is_internal(self, url):
         return any(host in url for host in self.importer.internal_hosts)
@@ -162,11 +152,15 @@ def load(root=None):
         min_image_bytes=int(imp_raw.get("min_image_bytes", 20_000)),
     )
 
+    language = raw.get("language", "en")
+    if isinstance(language, str):
+        language = [language]
+
     return Config(
         layout=layout,
         search=search,
         importer=imp,
-        language=raw.get("language", "en"),
+        languages=tuple(language) or ("en",),
         extra_stopwords=frozenset(raw.get("extra_stopwords", ())),
     )
 
