@@ -706,3 +706,76 @@ class TestChunkOverlap(BaseCase):
         second = Index(wider).build()
         self.assertFalse(second.loaded_from_cache,
                          "the cache was reused after the chunk settings changed")
+
+
+class TestDocx(BaseCase):
+    """Word .docx, parsed with the standard library.
+
+    A .docx is a zip holding XML, so no third-party package is needed — which
+    matters, because every added dependency is another thing that can fail to
+    install on the machine of someone who did not want to install anything.
+    """
+
+    NS_W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    NS_R = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+
+    def _docx(self, name="vendor.docx"):
+        import zipfile
+        document = f'''<?xml version="1.0"?>
+<w:document {self.NS_W} {self.NS_R}><w:body>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Vendor onboarding</w:t></w:r></w:p>
+<w:p><w:r><w:t>Screened before the first </w:t></w:r>
+     <w:r><w:rPr><w:b/></w:rPr><w:t>purchase order</w:t></w:r>
+     <w:r><w:t> is raised.</w:t></w:r></w:p>
+<w:tbl>
+ <w:tr><w:tc><w:p><w:r><w:t>Spend</w:t></w:r></w:p></w:tc>
+       <w:tc><w:p><w:r><w:t>Approver</w:t></w:r></w:p></w:tc></w:tr>
+ <w:tr><w:tc><w:p><w:r><w:t>above 5000 EUR</w:t></w:r></w:p></w:tc>
+       <w:tc><w:p><w:r><w:t>Finance director</w:t></w:r></w:p></w:tc></w:tr>
+</w:tbl>
+<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr><w:r><w:t>Check sanctions lists</w:t></w:r></w:p>
+<w:p><w:hyperlink r:id="rId1"><w:r><w:t>Expense reports</w:t></w:r></w:hyperlink></w:p>
+</w:body></w:document>'''
+        rels = '''<?xml version="1.0"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+ Target="https://wiki.example.com/pages/viewpage.action?pageId=1001" TargetMode="External"/>
+</Relationships>'''
+        path = os.path.join(self.root, name)
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("word/document.xml", document)
+            archive.writestr("word/_rels/document.xml.rels", rels)
+        return path
+
+    def _imported(self):
+        self._docx()
+        self.sync(quiet=True)
+        return open(os.path.join(self.cfg.layout.path("text"), self.text_files()[0]),
+                    encoding="utf-8").read()
+
+    def test_headings_come_from_styles(self):
+        self.assertIn("# Vendor onboarding", self._imported())
+
+    def test_emphasis_survives(self):
+        self.assertIn("**purchase order**", self._imported())
+
+    def test_a_table_stays_a_table(self):
+        body = self._imported()
+        self.assertIn("| Spend | Approver |", body)
+        # Rows separated by blank lines are not a table any more.
+        self.assertIn("| Spend | Approver |\n|---|---|", body)
+        self.assertIn("| above 5000 EUR | Finance director |", body)
+
+    def test_list_items_stay_together(self):
+        self.assertIn("- Check sanctions lists", self._imported())
+
+    def test_hyperlinks_are_resolved_through_the_relationship_file(self):
+        body = self._imported()
+        self.assertIn("[Expense reports](https://wiki.example.com", body)
+
+    def test_a_table_cell_is_searchable(self):
+        self._docx()
+        self.sync(quiet=True)
+        hits = Index(self.cfg).build().search("who approves spend above 5000")
+        self.assertTrue(hits)
+        self.assertIn("Finance director", hits[0][4])

@@ -101,7 +101,8 @@ docbase find "how late can I submit a claim"
 |---|---|
 | `.md` `.markdown` `.txt` `.rst` | already text — imported as written |
 | `.html` `.htm` | best for table-heavy pages: a row stays a row |
-| `.doc` `.mhtml` | Word export (MHTML inside); keeps hidden macro tabs |
+| `.docx` | Word; headings from styles, tables, lists, hyperlinks |
+| `.doc` `.mhtml` | wiki "Export to Word" (MHTML inside); keeps macro tabs |
 | `.pdf` | works everywhere; links and reading order are recovered |
 | `.zip` | a space export — unpacked and imported in one step |
 
@@ -151,6 +152,7 @@ and silent when nothing changed.
         │
         ├── .pdf   ─────────►  link annotations · XY-cut · font-size headings
         ├── .html/.doc ─────►  tables stay tables · hidden macro tabs survive
+        ├── .docx  ─────────►  styles · tables · relationship-resolved links
         └── .md/.txt ───────►  passed through, given an identity
         │
         ▼

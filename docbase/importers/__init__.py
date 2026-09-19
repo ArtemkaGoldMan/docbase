@@ -37,6 +37,11 @@ def convert_document(path, cfg=None):
                                     url_prefix=prefix)
         return pdf.build_markdown(path, blocks, links, is_internal), slug
 
+    if extension == ".docx":
+        from . import docx
+        blocks, links, doc_id = docx.convert(path)
+        return docx.build_markdown(path, blocks, links, doc_id, is_internal), ""
+
     if extension in TEXT_EXTENSIONS:
         from . import text
         body, links, doc_id = text.convert(path)

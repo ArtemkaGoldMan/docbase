@@ -15,7 +15,8 @@ python -m docbase sync
 
 That moves it into `kb/originals/`, converts it, restores its links, stitches
 cross-document references, and marks affected extracts stale. Accepted:
-`.pdf`, `.html`, `.htm`, `.doc`, `.mhtml`.
+`.pdf`, `.html`, `.htm`, `.docx`, `.doc`, `.mhtml`, `.md`, `.txt`, `.rst`, and
+`.zip` archives, which are unpacked in place.
 
 The same file dropped twice is recognised by content, even under a different
 name. If a page exists as both PDF and HTML, the HTML wins: it keeps tables as

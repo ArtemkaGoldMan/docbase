@@ -24,7 +24,7 @@ from . import config as config_module
 from . import languages as languages_module
 from . import link as link_module
 
-DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".mhtml", ".mht",
+DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".docx", ".mhtml", ".mht",
                   ".md", ".markdown", ".txt", ".rst", ".text")
 ARCHIVE_EXTENSIONS = (".zip",)
 
