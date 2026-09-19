@@ -8,6 +8,7 @@
     docbase eval      measure retrieval quality
     docbase verify    check extracts still match their source
     docbase doctor    check the environment
+    docbase serve     expose the base to any MCP-capable agent
 
 Agents talk to the base through this CLI, which keeps the tool usable from
 anything that can run a command, not just one assistant.
@@ -128,6 +129,11 @@ def cmd_verify(args, cfg):
     return verify.report(cfg, verbose=args.verbose)
 
 
+def cmd_serve(args, cfg):
+    from . import mcp
+    return mcp.serve(cfg)
+
+
 def cmd_doctor(args, cfg):
     ok = True
     print(f"Python      {sys.version.split()[0]}")
@@ -195,6 +201,9 @@ def build_parser():
     p = subparsers.add_parser("verify", help="check extracts against their source")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_verify)
+
+    p = subparsers.add_parser("serve", help="run an MCP server on stdio")
+    p.set_defaults(func=cmd_serve)
 
     p = subparsers.add_parser("doctor", help="check the environment")
     p.set_defaults(func=cmd_doctor)

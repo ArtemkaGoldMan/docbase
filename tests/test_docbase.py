@@ -779,3 +779,95 @@ class TestDocx(BaseCase):
         hits = Index(self.cfg).build().search("who approves spend above 5000")
         self.assertTrue(hits)
         self.assertIn("Finance director", hits[0][4])
+
+
+class TestMcpServer(BaseCase):
+    """The MCP surface, exercised as a client would drive it.
+
+    Implemented against the protocol directly rather than through an SDK, so
+    the handshake and the framing are ours to get right — and worth testing
+    rather than assuming.
+    """
+
+    SOURCE = ("# Travel booking\n\nDomestic trips need five working days of notice, "
+              "international fifteen. A non-refundable fare is allowed only when "
+              "cheaper by more than 30 percent.\n")
+
+    def _load(self):
+        self.drop("travel.md", self.SOURCE)
+        self.sync(quiet=True)
+
+    def _ask(self, message):
+        from docbase import mcp
+        return mcp.handle(message, self.cfg)
+
+    def _call(self, name, arguments=None):
+        reply = self._ask({"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                           "params": {"name": name, "arguments": arguments or {}}})
+        return reply["result"]["content"][0]["text"]
+
+    def test_initialize_echoes_a_supported_protocol(self):
+        reply = self._ask({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                           "params": {"protocolVersion": "2025-06-18"}})
+        self.assertEqual(reply["result"]["protocolVersion"], "2025-06-18")
+        self.assertEqual(reply["result"]["serverInfo"]["name"], "docbase")
+
+    def test_an_unknown_protocol_falls_back_rather_than_failing(self):
+        reply = self._ask({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                           "params": {"protocolVersion": "1999-01-01"}})
+        self.assertIn("result", reply)
+        self.assertIn(reply["result"]["protocolVersion"], ("2024-11-05",))
+
+    def test_a_notification_gets_no_reply(self):
+        self.assertIsNone(self._ask({"jsonrpc": "2.0",
+                                     "method": "notifications/initialized"}))
+
+    def test_tools_are_advertised_with_schemas(self):
+        reply = self._ask({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        tools = {t["name"]: t for t in reply["result"]["tools"]}
+        self.assertIn("search_documentation", tools)
+        self.assertEqual(tools["search_documentation"]["inputSchema"]["required"],
+                         ["query"])
+
+    def test_search_returns_the_fragment(self):
+        self._load()
+        text = self._call("search_documentation",
+                          {"query": "non-refundable fare cheaper percent"})
+        self.assertIn("30 percent", text)
+
+    def test_read_section_returns_lines(self):
+        self._load()
+        name = self.text_files()[0]
+        text = self._call("read_section", {"file": name, "line": 1, "lines": 5})
+        self.assertTrue(text.strip())
+
+    def test_read_section_names_the_problem_when_the_file_is_wrong(self):
+        self._load()
+        self.assertIn("No document", self._call("read_section", {"file": "nope.md"}))
+
+    def test_an_unknown_tool_is_a_protocol_error(self):
+        reply = self._ask({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                           "params": {"name": "does_not_exist"}})
+        self.assertEqual(reply["error"]["code"], -32602)
+
+    def test_a_failing_tool_is_reported_not_fatal(self):
+        """A broken tool must come back as a result the model can react to."""
+        from docbase import mcp
+        original = mcp._list_documents
+        mcp._list_documents = lambda cfg: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            reply = self._ask({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                               "params": {"name": "list_documents"}})
+        finally:
+            mcp._list_documents = original
+        self.assertTrue(reply["result"]["isError"])
+        self.assertIn("boom", reply["result"]["content"][0]["text"])
+
+    def test_the_stdio_loop_survives_malformed_json(self):
+        from docbase import mcp
+        out = io.StringIO()
+        mcp.serve(self.cfg, stdin=io.StringIO(
+            'not json\n{"jsonrpc":"2.0","id":1,"method":"ping"}\n'), stdout=out)
+        replies = [json.loads(l) for l in out.getvalue().splitlines() if l.strip()]
+        self.assertEqual(replies[0]["error"]["code"], -32700)
+        self.assertEqual(replies[1]["id"], 1)

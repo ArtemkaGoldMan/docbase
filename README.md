@@ -120,6 +120,7 @@ that PDF flattens away. Markdown passes through untouched.
 | `docbase status` | what is stale, changed or missing |
 | `docbase eval` | measure retrieval quality on your own corpus |
 | `docbase verify` | check extracts still match their source |
+| `docbase serve` | expose the base to any MCP-capable agent |
 | `docbase doctor` | check the environment |
 
 ## For AI agents
@@ -141,6 +142,27 @@ domain needs are generated from the domain, not guessed in advance.
 
 `.claude/settings.json` runs `docbase sync --quiet` before each turn: ~0.1 s,
 and silent when nothing changed.
+
+### Any other agent
+
+`docbase serve` speaks MCP over stdio, so search becomes a native tool call
+rather than something the model has to shell out for and parse.
+
+```json
+{
+  "mcpServers": {
+    "docbase": { "command": "docbase", "args": ["serve"], "cwd": "/path/to/your/base" }
+  }
+}
+```
+
+Five tools: `search_documentation`, `list_documents`, `read_section`,
+`base_status`, `sync_base`. The working directory decides which base is served,
+so several bases mean several entries.
+
+Implemented against the protocol directly rather than through an SDK — MCP over
+stdio is JSON-RPC on stdin and stdout, and a dependency here would undo the
+thing that makes the rest of this easy to install.
 
 ## How it works
 
