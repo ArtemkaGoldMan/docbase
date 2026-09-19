@@ -152,11 +152,23 @@ def _save(cfg, cases):
         handle.write("\n")
 
 
+def _flatten(text):
+    """Compare without markdown.
+
+    Markers are taken from fragments the indexer has already stripped of
+    emphasis, so a literal search against the raw file misses every passage
+    that happened to contain bold or a link — which silently dropped a
+    quarter of the generated cases.
+    """
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    return re.sub(r"\s+", " ", re.sub(r"[*_`~]", "", text)).strip().lower()
+
+
 def _marker_present(cfg, marker, filename):
     """Confirm the marker really is in that file, independently of search."""
     for name, path in Index(cfg).files():
         if name == filename:
-            return marker.lower() in open(path, encoding="utf-8").read().lower()
+            return _flatten(marker) in _flatten(open(path, encoding="utf-8").read())
     return False
 
 

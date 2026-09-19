@@ -36,8 +36,11 @@ logging.getLogger("pdfplumber").setLevel(logging.ERROR)
 logging.getLogger("pypdf").setLevel(logging.CRITICAL)   # broken-file noise is
                                                         # reported by sync itself
 
-# Font size -> heading level. Body text in these exports is around 9.9pt.
-HEADING_SIZES = [(16.0, "#"), (11.4, "##"), (10.2, "###")]
+# Heading level as a ratio to the document's own body text, not an absolute
+# size. Absolute thresholds were tuned to one export whose body was 9.9pt; a
+# document set in 12pt then had every line above the threshold, which turned
+# almost every paragraph into a heading.
+HEADING_RATIOS = [(1.55, "#"), (1.25, "##"), (1.12, "###")]
 ICON_FONTS = ("ADGSIcons",)             # wiki icon fonts render as junk glyphs
 LINE_TOL = 3.0          # vertical tolerance for grouping words into a line
 PARA_GAP = 1.7          # gap (in line heights) that starts a new paragraph
@@ -179,18 +182,42 @@ def render_line(words):
     return " ".join(parts)
 
 
-def heading_prefix(words):
+def body_size(pages):
+    """The most common word size in the document: its body text.
+
+    Measured over the whole document, because covers and front matter are set
+    in sizes that represent nothing.
+    """
+    sizes = {}
+    for page in pages:
+        for word in page.extract_words(extra_attrs=["size"]):
+            key = round(word["size"], 1)
+            sizes[key] = sizes.get(key, 0) + 1
+    if not sizes:
+        return 10.0
+    return max(sizes.items(), key=lambda item: item[1])[0]
+
+
+def heading_prefix(words, body=10.0):
     size = max(w["size"] for w in words)
     plain = " ".join(w["text"] for w in words)
     if any("Italic" in w["fontname"] for w in words):
         return ""                      # italic marks quoted text, not a heading
-    for threshold, hashes in HEADING_SIZES:
-        if size >= threshold:
-            if hashes == "###":
-                bold = any("Bold" in w["fontname"] for w in words)
-                if not bold or len(plain) > 110:
-                    return ""
+    bold = all("Bold" in w["fontname"] for w in words)
+    ratio = size / body if body else 1.0
+
+    for threshold, hashes in HEADING_RATIOS:
+        if ratio >= threshold:
+            if hashes == "###" and (not bold or len(plain) > 110):
+                return ""
             return hashes + " "
+
+    # Size alone misses whole families of documents. Technical reports and
+    # anything written in Word mark sections with bold at body size, so a
+    # short, wholly bold line that does not read as a sentence is a heading
+    # even though it is no larger than the text around it.
+    if bold and 3 < len(plain) <= 90 and not plain.rstrip().endswith((".", ":", ";", ",")):
+        return "### "
     return ""
 
 
@@ -225,6 +252,7 @@ def convert(pdf_path, assets_dir=None, slug="", url_prefix="kb/assets"):
     images = extract_images(reader, assets_dir, slug, url_prefix)
 
     with pdfplumber.open(pdf_path) as pdf:
+        body = body_size(pdf.pages)
         for page_no, page in enumerate(pdf.pages):
             height = float(reader.pages[page_no].mediabox.height)
             links = page_links(reader.pages[page_no], height)
@@ -254,7 +282,7 @@ def convert(pdf_path, assets_dir=None, slug="", url_prefix="kb/assets"):
                     top = min(w["top"] for w in line)
                     gap = (top - prev_bottom) if prev_bottom is not None else 999
                     new_para = gap > prev_size * PARA_GAP
-                    prefix = heading_prefix(line)
+                    prefix = heading_prefix(line, body)
 
                     if prefix or new_para or not blocks:
                         blocks.append(prefix + text)
@@ -299,11 +327,24 @@ def build_markdown(pdf_path, blocks, links, is_internal=lambda url: False):
             self_url = url
             break
 
+    # A cover page is a poor source of titles: it may carry a withdrawal
+    # banner, or split the title across three lines of equal size. The PDF's
+    # own metadata usually knows better.
+    declared = ""
+    try:
+        meta = PdfReader(pdf_path).metadata or {}
+        declared = str(meta.get("/Title", "") or "").strip()
+    except Exception:                                  # noqa: BLE001
+        declared = ""
+    if len(declared) < 3 or len(declared) > 120:
+        declared = ""
+
     head = frontmatter.block(
         os.path.basename(pdf_path),
         page_id or frontmatter.derive_id(os.path.basename(pdf_path)),
         url=self_url,
-        extracted=dt.date.today().isoformat())
+        extracted=dt.date.today().isoformat(),
+        extra={"title": declared} if declared else None)
 
     internal, external = [], []
     for url, page in sorted(links.items(), key=lambda kv: kv[1]):

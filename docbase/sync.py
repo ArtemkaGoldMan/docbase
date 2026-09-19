@@ -179,6 +179,22 @@ def _summarise(entries, what):
     return entries[:LOG_LIMIT] + [f"… and {len(entries) - LOG_LIMIT} more {what}"]
 
 
+def document_title(markdown, fallback_name):
+    """What to name the file after.
+
+    A declared title wins over the first heading: a cover page can carry a
+    withdrawal banner, or split the real title across several lines that each
+    become a heading of their own.
+    """
+    declared = re.search(r'^title:\s*"(.+?)"\s*$', markdown, re.M)
+    if declared and declared.group(1).strip():
+        return declared.group(1).strip()
+    heading = re.search(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", markdown, re.M)
+    if heading:
+        return heading.group(1)
+    return os.path.splitext(fallback_name)[0]
+
+
 # -------------------------------------------------------------- naming
 def free_text_name(cfg, base, page_id):
     """A name that will not clobber a different document.
@@ -375,9 +391,8 @@ def run(cfg=None, quiet=False, force=False):
         page_id = page_id_of(markdown)
         out_name = (known or {}).get("out") or text_by_page_id(cfg, page_id)
         if not out_name:
-            title = re.search(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", markdown, re.M)
-            base = cfg.slug(title.group(1) if title else os.path.splitext(name)[0])
-            out_name = free_text_name(cfg, base, page_id)
+            out_name = free_text_name(cfg, cfg.slug(document_title(markdown, name)),
+                                      page_id)
 
         markdown = _align_assets(cfg, slug, out_name, markdown)
 

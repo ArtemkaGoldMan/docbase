@@ -344,7 +344,7 @@ kb/graph.md     what exists, what is referenced but missing
 python -m unittest discover tests
 ```
 
-Eighty regression tests. Every one of them is a failure that actually
+Eighty-four regression tests. Every one of them is a failure that actually
 happened, most of them silent: a document overwritten by another with a similar
 title, one broken file aborting the whole import, an asset folder deleted along
 with hand-written notes, a half-written manifest from two concurrent runs.
@@ -379,8 +379,9 @@ Stated plainly, because knowing where a tool stops is part of using it.
 - **Stemming is a fixed-length prefix.** Crude; works well for inflected
   languages, and occasionally conflates unrelated words. There is no
   lemmatiser, so no language gets true morphological analysis.
-- **The PDF importer is tuned for wiki exports.** Other layouts may need
-  different `MIN_GUTTER` / `MIN_ROW_GAP` thresholds.
+- **Column detection is tuned for wiki exports.** Other page layouts may need
+  different `MIN_GUTTER` / `MIN_ROW_GAP` thresholds. Heading detection is not:
+  it measures against each document's own body text.
 - **Hidden macro tabs are absent from PDF.** Only the active tab renders. Use an
   HTML or Word export when that content matters.
 - **Search is a linear scan.** 5 ms at 200 documents, ~50 ms at 2000. Beyond

@@ -1043,3 +1043,70 @@ class TestHostileInput(BaseCase):
         self.drop("empty.html", "")
         report = self.sync(quiet=True)
         self.assertEqual(report["failed"], [])
+
+
+class TestRealDocumentShapes(BaseCase):
+    """Behaviour learned from real published PDFs rather than fixtures.
+
+    Every case here corresponds to something that only showed up when the tool
+    met documents written by someone else: NIST special publications, whose
+    body text is larger than the export these heuristics were first tuned on.
+    """
+
+    def test_heading_levels_are_relative_to_the_document(self):
+        """Absolute size thresholds were tuned to a 9.9pt export. A document
+        set in 12pt then had every line above the threshold, so almost every
+        paragraph became a heading."""
+        from docbase.importers.pdf import heading_prefix
+
+        def word(size, bold=False):
+            return {"size": size, "fontname": "Arial-BoldMT" if bold else "ArialMT",
+                    "text": "Section"}
+
+        # Body text must never be a heading, whatever its absolute size.
+        self.assertEqual(heading_prefix([word(12.0)], body=12.0), "")
+        self.assertEqual(heading_prefix([word(9.9)], body=9.9), "")
+        # A title well above body size is.
+        self.assertEqual(heading_prefix([word(20.0)], body=12.0), "# ")
+        self.assertEqual(heading_prefix([word(20.0)], body=9.9), "# ")
+
+    def test_bold_at_body_size_is_recognised_as_a_heading(self):
+        """Technical reports and anything written in Word mark sections with
+        bold at body size; size alone cannot see them."""
+        from docbase.importers.pdf import heading_prefix
+
+        bold_line = [{"size": 12.0, "fontname": "Arial-BoldMT", "text": t}
+                     for t in ("2", "Zero", "Trust", "Basics")]
+        self.assertEqual(heading_prefix(bold_line, body=12.0), "### ")
+
+        # …but a bold sentence is emphasis, not a heading.
+        sentence = [{"size": 12.0, "fontname": "Arial-BoldMT", "text": t}
+                    for t in ("This", "is", "a", "whole", "bold", "sentence.")]
+        self.assertEqual(heading_prefix(sentence, body=12.0), "")
+
+    def test_a_declared_title_beats_the_first_heading(self):
+        """A cover page may carry a withdrawal banner, or split the real title
+        across three lines that each become a heading."""
+        from docbase.sync import document_title
+
+        markdown = ('---\nsource_id: "x"\ntitle: "Digital Identity Guidelines"\n---\n\n'
+                    "# Withdrawn NIST Technical Series Publication\n")
+        self.assertEqual(document_title(markdown, "file.pdf"),
+                         "Digital Identity Guidelines")
+
+        without = '---\nsource_id: "x"\n---\n\n# Actual Heading\n'
+        self.assertEqual(document_title(without, "file.pdf"), "Actual Heading")
+
+    def test_eval_markers_survive_markdown_emphasis(self):
+        """Markers come from fragments already stripped of emphasis, so a
+        literal search against the raw file silently dropped every passage
+        containing bold or a link."""
+        from docbase import evaluate
+
+        self.drop("policy.md",
+                  "# Policy\n\nThe **cancellation** fee is 150 EUR for a "
+                  "[late](https://example.com/late) request.\n")
+        self.sync(quiet=True)
+        name = self.text_files()[0]
+        self.assertTrue(evaluate._marker_present(
+            self.cfg, "The cancellation fee is 150 EUR for a late request.", name))
