@@ -191,7 +191,8 @@ def body_size(pages):
     """
     sizes = {}
     for page in pages:
-        for word in page.extract_words(extra_attrs=["size"]):
+        for word in page.extract_words(extra_attrs=["size"],
+                                       x_tolerance=WORD_GAP):
             key = round(word["size"], 1)
             sizes[key] = sizes.get(key, 0) + 1
     if not sizes:
@@ -220,6 +221,18 @@ def heading_prefix(words, body=10.0):
     if bold and 3 < len(plain) <= 90 and not plain.rstrip().endswith((".", ":", ";", ",")):
         return "### "
     return ""
+
+
+#: How wide a gap has to be, in points, before it separates two words.
+#:
+#: Many documents do not write spaces at all: the layout engine positions each
+#: word and the space between them is empty page. pdfplumber's own default of
+#: 3 points is wider than the space in a 10-point font, so those documents came
+#: out with whole lines run together — a published paper gave 988 "words" for
+#: eight pages, 260 of them a line long, and no phrase in it could be found.
+#: At 2 points the same pages give 3882 words and three run-ons, and documents
+#: that did write their spaces are unaffected.
+WORD_GAP = 2
 
 
 def extract_images(reader, out_dir, slug, url_prefix="kb/assets"):
@@ -265,7 +278,8 @@ def convert(pdf_path, assets_dir=None, slug="", url_prefix="kb/assets"):
                 all_links.setdefault(unquote(uri), page_no + 1)
 
             words = []
-            for w in page.extract_words(extra_attrs=["size", "fontname"]):
+            for w in page.extract_words(extra_attrs=["size", "fontname"],
+                                        x_tolerance=WORD_GAP):
                 if w["top"] < HEADER_ZONE or w["bottom"] > page.height - FOOTER_ZONE:
                     continue                                   # running header/footer
                 if any(f in w["fontname"] for f in ICON_FONTS):

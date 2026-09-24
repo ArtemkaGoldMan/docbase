@@ -210,7 +210,8 @@ def build_parser():
     p = subparsers.add_parser("serve", help="run an MCP server on stdio")
     p.set_defaults(func=cmd_serve)
 
-    p = subparsers.add_parser("doctor", help="check the environment")
+    p = subparsers.add_parser("doctor",
+                              help="check the environment and generated skills")
     p.set_defaults(func=cmd_doctor)
     return parser
 

@@ -255,6 +255,50 @@ def _summarise(entries, what):
     return entries[:LOG_LIMIT] + [f"… and {len(entries) - LOG_LIMIT} more {what}"]
 
 
+#: A word this long is not a word. Documents that do not write their spaces
+#: come out as whole lines run together, and no phrase in them can be found —
+#: which `eval` cannot see, because it builds its questions out of the same
+#: damaged text and they match it perfectly.
+RUN_ON_CHARS = 25
+
+#: How much of a document may read like that before it is worth saying so.
+#: Real documents sit under one per cent: the long runs are URLs and
+#: identifiers. A badly extracted one was twenty-six.
+RUN_ON_SHARE = 0.05
+
+RE_WORD_RUN = re.compile(r"\S+")
+
+#: Characters a run of prose does not contain. A long token carrying these,
+#: or any digit, is a URL or an identifier — a document can be full of those
+#: and be perfectly well extracted. Prose run together is a long row of
+#: letters with at most ordinary punctuation in it.
+RUN_ON_FOREIGN = frozenset("/:%@=?#\\_+~|<>[]{}*")
+
+#: How many letters a long token needs before it reads as lost words.
+RUN_ON_LETTERS = 20
+
+
+def _is_run_on(word):
+    if len(word) <= RUN_ON_CHARS:
+        return False
+    if any(c in RUN_ON_FOREIGN or c.isdigit() for c in word):
+        return False
+    return sum(c.isalpha() for c in word) >= RUN_ON_LETTERS
+
+
+def run_on_share(markdown):
+    """How much of this document came out as words run together.
+
+    Measured on real documents: the worst honestly-extracted one is under
+    three per cent, where the long tokens are class names and hyphenated
+    terms. A paper whose spaces were lost in extraction reads sixteen.
+    """
+    words = RE_WORD_RUN.findall(markdown)
+    if len(words) < 200:
+        return 0.0                  # too short to judge
+    return sum(1 for word in words if _is_run_on(word)) / len(words)
+
+
 def body_length(markdown):
     """Characters of prose: no frontmatter, no headings, no links table."""
     text = re.sub(r"\A---\n.*?\n---\n", "", markdown, flags=re.S)
@@ -509,6 +553,12 @@ def run(cfg=None, quiet=False, force=False):
             failed.append((name, reason))
             manifest[name] = {"sha1": digest, "stat": stat, "failed": reason}
             continue
+
+        share = run_on_share(markdown)
+        if share > RUN_ON_SHARE:
+            log.append(f"{name}: {share:.0%} of the text came out run together "
+                       f"— the file does not write its spaces, so phrases in "
+                       f"it will not be found")
 
         empty = nothing_converted(markdown, os.path.getsize(path))
         if empty:

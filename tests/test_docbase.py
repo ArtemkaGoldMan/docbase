@@ -2317,3 +2317,65 @@ class TestGeneratedSkills(BaseCase):
     def test_a_base_without_skills_reports_nothing(self):
         from docbase import skills
         self.assertEqual(skills.report(self.root), (0, []))
+
+
+class TestRunOnText(BaseCase):
+    """Many documents never write a space.
+
+    The layout engine positions each word and the gap between them is empty
+    page, so an extractor has to guess where one word ends. pdfplumber's own
+    default gap is wider than the space in a 10-point font: a published paper
+    gave 988 "words" for eight pages, 260 of them a line long, and no phrase
+    in it could be found.
+
+    `eval` cannot see this. It builds its questions out of the extracted text,
+    so damaged text produces damaged questions that match it perfectly — the
+    one failure the retrieval score is blind to by construction.
+    """
+
+    def _document(self, run_together):
+        sentence = ("The refund is issued within fourteen days of the request "
+                    "and recorded in the ledger. ")
+        # Enough of it to judge: a handful of long tokens says nothing.
+        body = (sentence.replace(" ", "") + " ") * 250 if run_together \
+            else sentence * 40
+        return "# Refunds\n\n" + body + "\n"
+
+    def test_text_that_came_out_run_together_is_reported(self):
+        from docbase.sync import run_on_share, RUN_ON_SHARE
+        self.assertGreater(run_on_share(self._document(True)), RUN_ON_SHARE)
+
+    def test_ordinary_text_is_not(self):
+        from docbase.sync import run_on_share, RUN_ON_SHARE
+        self.assertLessEqual(run_on_share(self._document(False)), RUN_ON_SHARE)
+
+    def test_a_short_document_is_not_judged(self):
+        from docbase.sync import run_on_share
+        self.assertEqual(run_on_share("# Note\n\n" + "averylongidentifier" * 3), 0.0)
+
+    def test_the_import_says_so(self):
+        self.drop("broken.md", self._document(True))
+        report = self.sync(quiet=True)
+        self.assertTrue(any("run together" in line for line in report["log"]),
+                        report["log"])
+
+    def test_a_sound_document_is_imported_quietly(self):
+        self.drop("fine.md", self._document(False))
+        report = self.sync(quiet=True)
+        self.assertFalse(any("run together" in line for line in report["log"]))
+
+    def test_a_page_of_urls_is_not_run_on_text(self):
+        """A wiki index is mostly links, and every link is a long token."""
+        from docbase.sync import run_on_share, RUN_ON_SHARE
+        links = "".join(
+            f"- [KIP-{n}: Something About Streams]"
+            f"(/confluence/spaces/KAFKA/pages/{n}0000/KIP-{n}+Something)\n"
+            for n in range(120))
+        self.assertLessEqual(run_on_share("# Proposals\n\n" + links),
+                             RUN_ON_SHARE)
+
+    def test_long_identifiers_are_not_run_on_text(self):
+        from docbase.sync import run_on_share, RUN_ON_SHARE
+        body = ("The class MessageDefectRegistryEntry_v2 extends "
+                "AbstractMultipartContentHandler_base. ") * 60
+        self.assertLessEqual(run_on_share("# API\n\n" + body), RUN_ON_SHARE)
