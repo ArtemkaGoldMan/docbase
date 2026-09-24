@@ -1986,3 +1986,87 @@ class TestDocsAsCode(BaseCase):
         path = os.path.join(self.cfg.layout.root, "kb", "linkmap.json")
         self.assertEqual(json.load(open(path, encoding="utf-8"))["missing"], {})
         self.assertIn("list[T](Sized)", self._text("typing.md"))
+
+
+class TestHeadingPromotion(BaseCase):
+    """A documentation site supplies the first-level heading itself.
+
+    So the file on disk starts a level down, and has no title of its own. 103
+    of the 112 chapters of a published manual arrived named after their file —
+    "Ch08 01 vectors" — while the first line of each read "Storing Lists of
+    Values with Vectors". Stitching suffered with it: a reference resolves
+    through the document's name, and 29 of 111 cross-references landed.
+    """
+
+    CHAPTER = ("## Storing Lists of Values with Vectors\n\n"
+               "The first collection type is a vector.\n\n"
+               "### Creating a New Vector\n\nCall Vec::new.\n\n"
+               "## Summary\n\nVectors store values of one type.\n")
+
+    def test_the_document_is_named_after_its_own_first_heading(self):
+        self.drop("ch08-01-vectors.md", self.CHAPTER)
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(),
+                         ["storing-lists-of-values-with-vectors.md"])
+
+    def test_the_levels_shift_together(self):
+        from docbase.importers.text import promote_headings
+        promoted = promote_headings(self.CHAPTER)
+        self.assertIn("# Storing Lists of Values with Vectors", promoted)
+        self.assertIn("## Creating a New Vector", promoted)
+        self.assertNotIn("###", promoted)
+
+    def test_a_document_that_has_a_title_is_left_alone(self):
+        from docbase.importers.text import promote_headings
+        original = "# Handbook\n\n## Leave\n\nAsk first.\n"
+        self.assertEqual(promote_headings(original), original)
+
+    def test_a_document_that_opens_below_its_deepest_heading_is_left_alone(self):
+        """Prose, then a ### aside, then the real ## sections: not a title."""
+        from docbase.importers.text import promote_headings
+        original = "### An aside\n\nSide note.\n\n## Real section\n\nText.\n"
+        self.assertEqual(promote_headings(original), original)
+
+    def test_a_heading_inside_a_code_sample_does_not_count(self):
+        from docbase.importers.text import promote_headings
+        original = ("## Configuration\n\nEdit the file:\n\n"
+                    "```\n# the listen address\nlisten = 8080\n```\n")
+        promoted = promote_headings(original)
+        self.assertIn("# Configuration", promoted)
+        self.assertIn("# the listen address", promoted)
+        self.assertNotIn("## the listen address", promoted)
+
+    def test_the_reference_between_two_chapters_resolves(self):
+        self.drop("ch08-01-vectors.md", self.CHAPTER +
+                  "\nSee [hash maps](ch08-03-hash-maps.md).\n")
+        self.drop("ch08-03-hash-maps.md",
+                  "## Storing Keys with Hash Maps\n\nUse HashMap::new.\n")
+        self.sync(quiet=True)
+        body = open(os.path.join(self.cfg.layout.path("text"),
+                                 "storing-lists-of-values-with-vectors.md"),
+                    encoding="utf-8").read()
+        self.assertIn("](storing-keys-with-hash-maps.md)", body)
+
+
+class TestExtractedImageNames(BaseCase):
+    """A figure has to open, or it is not a figure.
+
+    Two images pulled out of a published NIST standard were JPEG 2000 and were
+    written as .jpg, because anything that did not start with the PNG
+    signature was called a JPEG. Nothing opens those — least of all the agent
+    told the marker is worth fifteen hundred tokens to look at.
+    """
+
+    def test_each_format_is_named_after_its_own_bytes(self):
+        from docbase.importers.pdf import image_extension
+        self.assertEqual(image_extension(b"\x89PNG\r\n\x1a\n rest"), ".png")
+        self.assertEqual(image_extension(b"\xff\xd8\xff\xe0 rest"), ".jpg")
+        self.assertEqual(image_extension(b"\x00\x00\x00\x0cjP  \r\n"), ".jp2")
+        self.assertEqual(image_extension(b"\xff\x4f\xff\x51 rest"), ".j2k")
+        self.assertEqual(image_extension(b"GIF89a rest"), ".gif")
+        self.assertEqual(image_extension(b"II*\x00 rest"), ".tiff")
+        self.assertEqual(image_extension(b"RIFF\x00\x00\x00\x00WEBP"), ".webp")
+
+    def test_bytes_nothing_recognises_are_not_a_figure(self):
+        from docbase.importers.pdf import image_extension
+        self.assertEqual(image_extension(b"\x01\x02\x03\x04 whatever"), "")

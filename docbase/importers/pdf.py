@@ -221,6 +221,32 @@ def heading_prefix(words, body=10.0):
     return ""
 
 
+#: What the bytes say they are. A PDF carries whatever its author embedded,
+#: and calling everything that is not a PNG a .jpg wrote two JPEG 2000 images
+#: out of a published standard under a name that nothing will open — least of
+#: all the agent asked to look at the figure.
+IMAGE_SIGNATURES = (
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"\x00\x00\x00\x0cjP  ", ".jp2"),
+    (b"\xff\x4f\xff\x51", ".j2k"),
+    (b"GIF8", ".gif"),
+    (b"II*\x00", ".tiff"),
+    (b"MM\x00*", ".tiff"),
+    (b"BM", ".bmp"),
+)
+
+
+def image_extension(data):
+    """-> the extension these bytes deserve, or "" if nothing recognises them."""
+    for signature, extension in IMAGE_SIGNATURES:
+        if data.startswith(signature):
+            return extension
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    return ""
+
+
 def extract_images(reader, out_dir, slug, url_prefix="kb/assets"):
     """Meaningful images -> files plus markers. Icons and repeated decoration
     (a logo on every page) are filtered out by size and content hash."""
@@ -235,7 +261,9 @@ def extract_images(reader, out_dir, slug, url_prefix="kb/assets"):
             digest = hashlib.sha1(data).hexdigest()
             if digest in seen:
                 continue                                  # decoration, seen before
-            ext = ".png" if data[:4] == b"\x89PNG" else ".jpg"
+            ext = image_extension(data)
+            if not ext:
+                continue      # bytes nothing can open are not a figure
             name = f"p{page_no:02d}-{idx}{ext}"
             os.makedirs(out_dir, exist_ok=True)
             with open(os.path.join(out_dir, name), "wb") as fh:

@@ -49,6 +49,61 @@ def _rule(line):
     return ""
 
 
+RE_MD_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+
+
+def headings_outside_fences(text):
+    """-> [(level, text)] for every markdown heading that is not a code sample."""
+    out, fenced = [], False
+    for line in text.splitlines():
+        if RE_FENCE.match(line):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        match = RE_MD_HEADING.match(line)
+        if match:
+            out.append((len(match.group(1)), match.group(2)))
+    return out
+
+
+def promote_headings(text):
+    """Give a document whose top heading is ## its own title back.
+
+    A book or a documentation site supplies the first-level heading itself, so
+    the file on disk starts a level down. Without this the document has no
+    title of its own and is named after its file instead: 103 of the 112
+    chapters of a published manual arrived as "Ch08 01 vectors", while the
+    first line of the file reads "Storing Lists of Values with Vectors".
+
+    Only when the document opens with one of its shallowest headings, which
+    is what makes it the subject rather than a section of something else. A
+    file that is a bag of equal sections is then titled after the first of
+    them, which is still the document saying what it is about instead of a
+    file name saying nothing.
+    """
+    found = headings_outside_fences(text)
+    if not found:
+        return text
+    shallowest = min(level for level, _ in found)
+    if shallowest == 1:
+        return text
+    if found[0][0] != shallowest:
+        return text
+
+    shift = shallowest - 1
+    out, fenced = [], False
+    for line in text.splitlines():
+        if RE_FENCE.match(line):
+            fenced = not fenced
+            out.append(line)
+            continue
+        match = None if fenced else RE_MD_HEADING.match(line)
+        out.append("#" * (len(match.group(1)) - shift) + " " + match.group(2)
+                   if match else line)
+    return "\n".join(out)
+
+
 def underlined_headings(text):
     """Turn underlined headings into markdown ones.
 
@@ -146,11 +201,12 @@ def convert(path):
         doc_id = frontmatter.derive_id(os.path.basename(path))
 
     stated = declared_title(body)
-    body = underlined_headings(body)
+    body = promote_headings(underlined_headings(body))
+    titled = any(level == 1 for level, _ in headings_outside_fences(body))
 
     if stated:
         body = f"# {stated}\n\n{body.lstrip()}"
-    elif not RE_TITLE.search(body):
+    elif not titled:
         title = os.path.splitext(name)[0].replace("-", " ").replace("_", " ")
         body = f"# {title.strip().capitalize()}\n\n{body.lstrip()}"
 
