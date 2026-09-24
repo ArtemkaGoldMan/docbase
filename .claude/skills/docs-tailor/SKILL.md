@@ -76,6 +76,15 @@ quoted back to a person, and keep numbers verbatim. If the source does not
 cover something, write that the card is partial and say what is missing —
 an honest gap is usable, a confident invention is not.
 
+Write it so `verify` can check it:
+
+- Put the document's own words in quotation marks or backticks. That is what
+  marks a phrase as a quotation rather than your summary of one, and only
+  quotations are checked.
+- Keep every number next to what it counts — "72 hours", not "72" in one
+  sentence and "hours" in the next. The unit is what tells 72 hours from 72
+  days, and it is the only thing that can.
+
 ## 5. Verify
 
 ```bash
@@ -88,3 +97,8 @@ python -m docbase verify
 document they came from. A card that drifts from its source is the one failure
 mode this whole design exists to prevent, so treat a finding there as a bug in
 the card, not as noise.
+
+It confirms that a claim is *somewhere* in the document, not that you quoted
+the right occurrence of it. A long document that mentions "24 hours" about
+something else will confirm a card that says 24 hours about this. Reading the
+section is still the only way to be sure.

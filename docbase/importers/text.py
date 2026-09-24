@@ -127,10 +127,13 @@ def convert(path):
     doc_id = frontmatter.read_id(existing.group(1)) if existing else ""
 
     if not doc_id:
-        # No declared identity, so derive one from the content. Keyed on the
-        # text rather than the file name, so renaming a file does not create a
-        # second copy of the same document.
-        doc_id = frontmatter.derive_id(body.strip())
+        # No declared identity, so derive one from the file name, as the other
+        # importers do. Keying on the content instead forked the document on
+        # every edit: a handbook synced from a repository grew a second copy
+        # each time a sentence changed, and the base filled with stale twins.
+        # A file that must survive a rename can declare its own id in
+        # frontmatter, which is read above and kept.
+        doc_id = frontmatter.derive_id(os.path.basename(path))
 
     stated = declared_title(body)
     body = underlined_headings(body)

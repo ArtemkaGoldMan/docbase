@@ -28,6 +28,10 @@ import re
 from . import config as config_module
 
 RE_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+#: The links table the importer appends. It is generated, so it is not a
+#: section of the document and does not belong in its outline.
+RE_GENERATED_TAIL = re.compile(r"Links found (on this page|in this document)$")
+
 RE_DOC_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", re.M)
 
 #: Past this many documents the map names them and stops. The sections of
@@ -321,14 +325,25 @@ class Index:
                 for score, name, line_no, heading, seq in hits[:limit]]
 
     def headings(self, name):
+        """The document's own sections.
+
+        Down to the fourth level, because a wiki reserves the first two for
+        the page title and its lead: a real page's every section was an h4,
+        and cutting at the third hid the whole document. Generated matter at
+        the foot of the file is not a section of it.
+        """
         path = dict(self.files()).get(name)
         if not path:
             return []
         out = []
-        for number, raw in enumerate(open(path, encoding="utf-8"), 1):
-            match = RE_HEADING.match(raw)
-            if match and len(match.group(1)) <= 3:
+        with open(path, encoding="utf-8") as handle:
+            for number, raw in enumerate(handle, 1):
+                match = RE_HEADING.match(raw)
+                if not match or len(match.group(1)) > 4:
+                    continue
                 heading = clean(match.group(2)).strip()
+                if RE_GENERATED_TAIL.match(heading):
+                    break
                 if heading and len(heading) < 90:
                     out.append((number, heading))
         return out

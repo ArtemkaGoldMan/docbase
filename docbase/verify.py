@@ -26,11 +26,16 @@ import re
 
 from . import config as config_module
 from . import frontmatter
+from . import languages
 
 RE_FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 RE_SOURCE = re.compile(r"source:\s*\S*?([\w.-]+\.md)")
 RE_NUMBER = re.compile(r"(?<![\w.])(\d[\d\s]*(?:[.,]\d+)?)\s*(%|[A-Za-z]{2,12})?")
 RE_QUOTED = re.compile(r"`([^`\n]{4,80})`|«([^»\n]{4,80})»|\"([^\"\n]{4,80})\"")
+
+#: Every number written in the source.
+RE_ANY_NUMBER = re.compile(
+    r"\d{1,3}(?:[ .,]\d{3})*(?:[.,]\d+)?|\d+")
 
 #: Numbers that are structure rather than content.
 SKIP_NUMBER_CONTEXT = re.compile(r"^\s*(\d+)[.)]\s")
@@ -42,8 +47,15 @@ def _normalise(text):
     return re.sub(r"\s+", " ", re.sub(r"[*_`~|]", "", text)).strip().lower()
 
 
+def _forms(value):
+    """The ways one quantity gets written: 1 000, 1,000, 1000, 1.000."""
+    bare = re.sub(r"\s", "", value.strip()).rstrip(".,")
+    return {bare, bare.replace(",", ""), bare.replace(",", "."),
+            bare.replace(".", ","), bare.replace(".", "")}
+
+
 def _numbers(text):
-    """Numbers a card asserts, with the word that follows them for context."""
+    """Numbers a card asserts, each with the line that asserts it."""
     found = []
     for line in text.splitlines():
         if SKIP_NUMBER_CONTEXT.match(line):
@@ -55,6 +67,73 @@ def _numbers(text):
             unit = (match.group(2) or "").strip()
             found.append((value, unit, line.strip()))
     return found
+
+
+#: Words as the document writes them, for reading numbers out of prose.
+RE_WORD = re.compile(r"[^\W\d_]+", re.U)
+
+#: How much of the sentence around a number counts as its context.
+CONTEXT_CHARS = 90
+
+
+def number_contexts(text, spelled=None):
+    """-> {number: the passages that number appears in}.
+
+    A number alone proves nothing: a page listing four hundred proposals
+    contains "96" in a page id whether or not it ever says ninety-six hours.
+    What confirms a card is the number appearing *where the card says it
+    does*, so each occurrence keeps the words around it.
+    """
+    out = {}
+
+    def record(value, at):
+        window = _normalise(text[max(at - CONTEXT_CHARS, 0):at + CONTEXT_CHARS])
+        for form in _forms(value):
+            out.setdefault(form, []).append(window)
+
+    structural = set()
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        marker = SKIP_NUMBER_CONTEXT.match(line)
+        if marker:
+            structural.add(offset + marker.start(1))
+        offset += len(line)
+
+    for match in RE_ANY_NUMBER.finditer(text):
+        if match.start() in structural:
+            continue        # a list marker is structure, as it is in a card
+        record(match.group(), match.start())
+
+    # A document may write the number out; a card written from it will not.
+    if spelled:
+        for match in RE_WORD.finditer(text):
+            digits = spelled.get(match.group().lower())
+            if digits:
+                record(digits, match.start())
+    return out
+
+
+def _confirms(value, unit, line, contexts, stopwords):
+    """Does the source carry this number where the card claims it?
+
+    What the number counts is the strongest evidence there is: "72 hours"
+    and "72 days" are the same digits and a different rule. Failing that —
+    a number the card leaves bare — any distinctive word from the card's own
+    line will do to place it.
+    """
+    windows = [w for form in _forms(value) for w in contexts.get(form, ())]
+    if not windows:
+        return False
+
+    counted = unit.lower().rstrip("s")
+    if len(counted) > 2 and counted not in stopwords:
+        return any(counted in window for window in windows)
+
+    keywords = {word for word in RE_WORD.findall(line.lower())
+                if len(word) > 2 and word not in stopwords}
+    if not keywords:
+        return True                 # nothing to place it by; presence is all
+    return any(any(word in window for word in keywords) for window in windows)
 
 
 def _quotes(text):
@@ -71,19 +150,17 @@ def _card_body(text):
     return text[match.end():] if match else text
 
 
-def check_card(card_path, source_text):
+def check_card(card_path, source_text, spelled=None, stopwords=frozenset()):
     """-> (confirmed, [(kind, claim, line)]) for one card."""
     raw = open(card_path, encoding="utf-8").read()
     body = _card_body(raw)
     haystack = _normalise(source_text)
-    haystack_digits = re.sub(r"[^\d]", "", source_text)
+    contexts = number_contexts(source_text, spelled)
 
     confirmed, problems = 0, []
 
     for value, unit, line in _numbers(body):
-        compact = value.replace(" ", "")
-        variants = {compact, compact.replace(",", "."), compact.replace(".", ",")}
-        if any(v.lower() in haystack for v in variants) or compact in haystack_digits:
+        if _confirms(value, unit, line, contexts, stopwords):
             confirmed += 1
         else:
             shown = f"{value} {unit}".strip()
@@ -116,6 +193,7 @@ def report(cfg=None, verbose=False):
                 if doc_id:
                     by_id[doc_id] = name
 
+    spelled = languages.numbers(cfg.languages)
     total_cards = total_confirmed = 0
     findings, orphans, stale, cleared = [], [], [], []
     passed_by_topic = {}
@@ -150,7 +228,8 @@ def report(cfg=None, verbose=False):
 
             source_text = open(os.path.join(text_dir, source_name),
                                encoding="utf-8").read()
-            confirmed, problems = check_card(path, source_text)
+            confirmed, problems = check_card(
+                path, source_text, spelled, cfg.stopwords)
             total_cards += 1
             total_confirmed += confirmed
             if problems:

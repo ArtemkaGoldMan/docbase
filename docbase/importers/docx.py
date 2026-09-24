@@ -187,7 +187,9 @@ def convert(path):
         title = os.path.splitext(os.path.basename(path))[0]
         blocks.insert(0, f"# {title}")
 
-    return blocks, links, frontmatter.derive_id(title, len(blocks))
+    # Keyed on the file name, as the other importers are. Including the block
+    # count made every edit a new document.
+    return blocks, links, frontmatter.derive_id(os.path.basename(path))
 
 
 def build_markdown(path, blocks, links, doc_id, is_internal=lambda url: False):

@@ -1652,3 +1652,172 @@ class TestMapIsProgressive(BaseCase):
                                {"document": "document-1.md"})
         self.assertIn("document-1.md", answer)
         self.assertNotIn("document-2.md", answer)
+
+
+class TestVerifyOnRealCards(BaseCase):
+    """What the check was worth when a real card was put through it.
+
+    Against a 280 KB wiki page, three deliberate corruptions — a changed
+    number, an altered quotation and an invented rule — all passed. The
+    number check compared against the document's digits with the separators
+    taken out, which in that page is a string of nineteen thousand digits:
+    "96" is inside it whether or not the document ever says ninety-six.
+    """
+
+    SOURCE = ("# Proposals\n\nThe criteria for acceptance is lazy majority. "
+              "The vote should remain open for at least 72 hours.\n\n"
+              "1. Take the next available number.\n"
+              "2. Fill in the sections described above.\n"
+              "3. Start a discussion thread.\n\n"
+              "A page id of 27846330 identifies this page.\n")
+
+    def _card(self, body):
+        folder = os.path.join(self.cfg.layout.path("cards"), "proposals")
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, "raising.md")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("---\nsource: kb/text/proposals.md\n---\n\n" + body)
+        return path
+
+    def _run(self, body):
+        from docbase import verify
+        self.drop("proposals.md", self.SOURCE)
+        self.sync(quiet=True)
+        self._card(body)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = verify.report(self.cfg)
+        return code, out.getvalue()
+
+    def test_the_right_number_passes(self):
+        code, output = self._run("The vote stays open for at least 72 hours.\n")
+        self.assertEqual(code, 0, output)
+
+    def test_a_number_the_source_never_states_is_caught(self):
+        code, output = self._run("The vote stays open for at least 96 hours.\n")
+        self.assertEqual(code, 1)
+        self.assertIn("96", output)
+
+    def test_the_same_number_counting_something_else_is_caught(self):
+        """72 hours and 72 days are the same digits and a different rule."""
+        code, output = self._run("The vote stays open for at least 72 days.\n")
+        self.assertEqual(code, 1)
+        self.assertIn("72 days", output)
+
+    def test_a_digit_hidden_inside_a_longer_number_does_not_confirm(self):
+        """2 is inside 27846330; that is not the document saying two."""
+        code, output = self._run("Two approvals are needed: 2 reviewers.\n")
+        self.assertEqual(code, 1)
+        self.assertIn("2 reviewers", output)
+
+    def test_a_list_marker_in_the_source_is_not_evidence(self):
+        """The source's own "3." is structure, exactly as a card's is."""
+        code, output = self._run("Start 3 threads.\n")
+        self.assertEqual(code, 1)
+
+    def test_a_number_the_source_spells_out_still_matches(self):
+        self.drop("hours.md", "# Leave\n\nRequests need at least fifteen "
+                              "working days of notice.\n")
+        self.sync(quiet=True)
+        folder = os.path.join(self.cfg.layout.path("cards"), "leave")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "notice.md"), "w", encoding="utf-8") as h:
+            h.write("---\nsource: kb/text/leave.md\n---\n\n"
+                    "Give 15 working days of notice.\n")
+        from docbase import verify
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = verify.report(self.cfg)
+        self.assertEqual(code, 0, out.getvalue())
+
+
+class TestHistoryDiffIsReadable(BaseCase):
+    """A wiki page puts a paragraph on one line.
+
+    Compared line by line, one changed number reported seven hundred
+    characters as removed and seven hundred as added — two lines that look
+    identical to whoever has to update the card from them.
+    """
+
+    def _page(self, hours):
+        filler = ("These proposals are more serious than code changes and "
+                  "more serious even than release votes. ") * 4
+        return (f"# Proposals\n\nCall a vote to have the proposal adopted. "
+                f"{filler}The vote should remain open for at least {hours} "
+                f"hours. Report the result to the mailing list.\n")
+
+    def test_only_the_sentence_that_changed_is_shown(self):
+        self.drop("proposals.md", self._page(72))
+        self.sync(quiet=True)
+        self.drop("proposals.md", self._page(96))
+        self.sync(quiet=True)
+
+        folder = os.path.join(self.cfg.layout.path("history"), "proposals")
+        diffs = sorted(f for f in os.listdir(folder) if f.endswith(".diff"))
+        body = open(os.path.join(folder, diffs[-1]), encoding="utf-8").read()
+        changed = [line for line in body.splitlines()
+                   if line[:1] in "+-" and not line.startswith(("---", "+++"))]
+        self.assertEqual(len(changed), 2, body)
+        for line in changed:
+            self.assertLess(len(line), 120, "the whole paragraph was reported")
+        self.assertIn("72", changed[0])
+        self.assertIn("96", changed[1])
+
+
+class TestReExportUpdatesTheDocument(BaseCase):
+    """Dropping a file that is already here is a new version of it.
+
+    Every importer had settled this differently. A wiki export was keyed on
+    its file name and updated; a markdown file was keyed on its content and a
+    Word file on its paragraph count, so each edit became a second document.
+    A handbook synced from a repository grew a stale twin every time a
+    sentence changed, and the base then answered from whichever copy the
+    search happened to prefer.
+    """
+
+    def _version(self, hours):
+        return (f"# Escalation\n\nRespond to a priority ticket within {hours} "
+                f"hours. Record the outcome in the tracker.\n")
+
+    def test_a_second_drop_replaces_the_first(self):
+        self.drop("escalation.md", self._version(4))
+        self.sync(quiet=True)
+        self.drop("escalation.md", self._version(2))
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["escalation.md"])
+        self.assertEqual(len(os.listdir(self.cfg.layout.path("originals"))), 1)
+
+    def test_the_document_carries_the_new_text(self):
+        self.drop("escalation.md", self._version(4))
+        self.sync(quiet=True)
+        self.drop("escalation.md", self._version(2))
+        self.sync(quiet=True)
+        text = open(os.path.join(self.cfg.layout.path("text"), "escalation.md"),
+                    encoding="utf-8").read()
+        self.assertIn("within 2 hours", text)
+        self.assertNotIn("within 4 hours", text)
+
+    def test_the_change_is_recorded_in_history(self):
+        self.drop("escalation.md", self._version(4))
+        self.sync(quiet=True)
+        self.drop("escalation.md", self._version(2))
+        self.sync(quiet=True)
+        folder = os.path.join(self.cfg.layout.path("history"), "escalation")
+        self.assertTrue(os.path.isdir(folder))
+        self.assertTrue(any(f.endswith(".diff") for f in os.listdir(folder)))
+
+    def test_a_declared_id_survives_a_rename(self):
+        """The documented way to keep one identity across file names."""
+        body = ('---\nsource_id: "kept-across-renames"\n---\n\n'
+                "# Escalation\n\nRespond within 4 hours.\n")
+        self.drop("escalation.md", body)
+        self.sync(quiet=True)
+        self.drop("escalation-v2.md", body.replace("4 hours", "2 hours"))
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["escalation.md"])
+
+    def test_an_edit_of_the_same_length_is_noticed(self):
+        """Same size, same second: the cheap check had to look closer."""
+        self.drop("escalation.md", self._version(4))
+        self.sync(quiet=True)
+        self.drop("escalation.md", self._version(2))
+        report = self.sync(quiet=True)
+        self.assertEqual(report["skipped"], 0)

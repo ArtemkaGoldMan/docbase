@@ -66,6 +66,69 @@ STOPWORDS = {
 
 # ------------------------------------------------------------- script tables
 # Letters that NFKD does not decompose, so they need naming explicitly.
+#: Numbers a document spells out. A card written from "at least fifteen
+#: working days" says "15 working days", and without this the check reports a
+#: faithful transcription as drift — the kind of false finding that teaches
+#: people to ignore the tool.
+#:
+#: Positional: 0-20, then 30 40 50 60 70 80 90, then 100 and 1000. A language
+#: added under kb/languages/ may contribute its own list the same way.
+NUMBER_VALUES = ([n for n in range(21)] + [30, 40, 50, 60, 70, 80, 90]
+                 + [100, 1000])
+
+NUMBER_WORDS = {
+    "en": """zero one two three four five six seven eight nine ten eleven
+        twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen
+        twenty thirty forty fifty sixty seventy eighty ninety hundred
+        thousand""",
+    "de": """null eins zwei drei vier fünf sechs sieben acht neun zehn elf
+        zwölf dreizehn vierzehn fünfzehn sechzehn siebzehn achtzehn neunzehn
+        zwanzig dreißig vierzig fünfzig sechzig siebzig achtzig neunzig
+        hundert tausend""",
+    "es": """cero uno dos tres cuatro cinco seis siete ocho nueve diez once
+        doce trece catorce quince dieciséis diecisiete dieciocho diecinueve
+        veinte treinta cuarenta cincuenta sesenta setenta ochenta noventa
+        cien mil""",
+    "fr": """zéro un deux trois quatre cinq six sept huit neuf dix onze douze
+        treize quatorze quinze seize dix-sept dix-huit dix-neuf vingt trente
+        quarante cinquante soixante soixante-dix quatre-vingts
+        quatre-vingt-dix cent mille""",
+    "it": """zero uno due tre quattro cinque sei sette otto nove dieci undici
+        dodici tredici quattordici quindici sedici diciassette diciotto
+        diciannove venti trenta quaranta cinquanta sessanta settanta ottanta
+        novanta cento mille""",
+    "nl": """nul een twee drie vier vijf zes zeven acht negen tien elf twaalf
+        dertien veertien vijftien zestien zeventien achttien negentien
+        twintig dertig veertig vijftig zestig zeventig tachtig negentig
+        honderd duizend""",
+    "pl": """zero jeden dwa trzy cztery pięć sześć siedem osiem dziewięć
+        dziesięć jedenaście dwanaście trzynaście czternaście piętnaście
+        szesnaście siedemnaście osiemnaście dziewiętnaście dwadzieścia
+        trzydzieści czterdzieści pięćdziesiąt sześćdziesiąt siedemdziesiąt
+        osiemdziesiąt dziewięćdziesiąt sto tysiąc""",
+    "pt": """zero um dois três quatro cinco seis sete oito nove dez onze doze
+        treze catorze quinze dezasseis dezassete dezoito dezanove vinte
+        trinta quarenta cinquenta sessenta setenta oitenta noventa cem mil""",
+    "uk": """нуль один два три чотири п'ять шість сім вісім дев'ять десять
+        одинадцять дванадцять тринадцять чотирнадцять п'ятнадцять
+        шістнадцять сімнадцять вісімнадцять дев'ятнадцять двадцять тридцять
+        сорок п'ятдесят шістдесят сімдесят вісімдесят дев'яносто сто
+        тисяча""",
+}
+
+
+def numbers(codes):
+    """-> {spelled-out word: the digits it stands for} for these languages."""
+    out = {}
+    for code in codes:
+        blob = NUMBER_WORDS.get(code)
+        if not blob:
+            continue
+        for word, value in zip(blob.split(), NUMBER_VALUES):
+            out.setdefault(word.lower(), str(value))
+    return out
+
+
 LATIN_EXTRAS = {
     "ł": "l", "đ": "d", "ø": "o", "æ": "ae", "œ": "oe", "ß": "ss",
     "þ": "th", "ð": "d", "ħ": "h", "ı": "i", "ŋ": "n", "ĸ": "k",

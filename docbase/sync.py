@@ -52,8 +52,16 @@ def slugify(text, extra_map=None, fallback="document"):
 
 
 def quick_stat(path):
+    """Cheap evidence that a file has not changed, so the corpus is not
+    re-hashed every turn.
+
+    Nanoseconds, not whole seconds: an edit that keeps the file the same
+    length — a corrected number, a fixed typo — landed in the same second as
+    the last import and the change was invisible. The content hash still has
+    the final say; this only decides whether it is worth computing.
+    """
     info = os.stat(path)
-    return [int(info.st_mtime), info.st_size]
+    return [info.st_mtime_ns, info.st_size]
 
 
 def fingerprint(path):
@@ -125,13 +133,19 @@ def collect_dropped(cfg, log):
             continue
         extension = os.path.splitext(name)[1].lower()
         base = os.path.join(originals, cfg.slug(os.path.splitext(name)[0]))
-        target, counter = base + extension, 1
-        while os.path.exists(target):
-            target = f"{base}-{counter}{extension}"
-            counter += 1
-        os.rename(source, target)
-        known[digest] = os.path.basename(target)
-        added.append(f"{name} -> {os.path.relpath(target, layout.root)}")
+        target = base + extension
+
+        # Dropping a file that is already here by name is a re-export, not a
+        # second document. Keeping both forked every edit: a handbook synced
+        # from a repository grew a stale twin each time a sentence changed,
+        # and the base answered from whichever copy the search preferred.
+        replaced = os.path.exists(target)
+        filename = os.path.basename(target)
+        os.replace(source, target)
+        known = {d: n for d, n in known.items() if n != filename}
+        known[digest] = filename
+        added.append(f"{name} -> {os.path.relpath(target, layout.root)}"
+                     + (" (replaces the previous export)" if replaced else ""))
 
     log.extend(_summarise(added, "added"))
     if duplicates:
@@ -248,6 +262,24 @@ def text_by_page_id(cfg, page_id):
 
 
 # -------------------------------------------------------------- history
+#: A wiki page puts a whole paragraph on one line, so comparing line by line
+#: reports seven hundred characters as changed when one number moved — and the
+#: two sides of the diff look identical to whoever has to act on them. Long
+#: lines are compared a sentence at a time instead.
+DIFF_SENTENCE_CHARS = 200
+RE_DIFF_SPLIT = re.compile(r"(?<=[.!?:;])\s+")
+
+
+def _diff_units(text):
+    units = []
+    for line in text.splitlines():
+        if len(line) > DIFF_SENTENCE_CHARS:
+            units.extend(RE_DIFF_SPLIT.split(line))
+        else:
+            units.append(line)
+    return units
+
+
 def record_history(cfg, name, old_text, new_text, log):
     """Keep what changed, so a card can be updated surgically.
 
@@ -261,7 +293,7 @@ def record_history(cfg, name, old_text, new_text, log):
     stamp = time.strftime("%Y-%m-%d-%H%M%S")
 
     diff = list(difflib.unified_diff(
-        old_text.splitlines(), new_text.splitlines(),
+        _diff_units(old_text), _diff_units(new_text),
         fromfile=f"{name} (previous)", tofile=f"{name} (current)",
         lineterm="", n=1))
     with open(os.path.join(folder, f"{stamp}.diff"), "w", encoding="utf-8") as handle:
@@ -273,7 +305,7 @@ def record_history(cfg, name, old_text, new_text, log):
 
     added = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
     removed = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
-    log.append(f"{name} changed: +{added}/-{removed} lines "
+    log.append(f"{name} changed: +{added}/-{removed} "
                f"(diff in {os.path.relpath(folder, cfg.layout.root)})")
     return True
 
