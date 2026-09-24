@@ -40,7 +40,8 @@ def generate(cfg=None, count=20):
         return 1
 
     scored = []
-    for name, line_no, heading, body, body_stems, _head in index.chunks:
+    for name, line_no, heading, seq, body_stems, _head in index.chunks:
+        body = index.snippet(name, seq)
         if len(body) < 180:
             continue
         weight = sum(index.idf.get(token, 0) for token in body_stems)

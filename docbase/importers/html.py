@@ -18,6 +18,7 @@ import sys
 from urllib.parse import unquote
 
 from bs4 import BeautifulSoup
+from bs4.element import PreformattedString
 
 from .. import frontmatter
 
@@ -51,34 +52,55 @@ def load_html(path):
     return raw.decode("utf-8", "replace")
 
 
+def inline_child(child):
+    """One node -> markdown. Split out so a caller can render part of an
+    element: a list item's own text, without the list nested inside it."""
+    if isinstance(child, PreformattedString):
+        return ""                # a comment or doctype is not page text
+    name = getattr(child, "name", None)
+    if name is None:
+        return re.sub(r"\s+", " ", str(child))
+    if name in ("strong", "b"):
+        text = inline(child).strip()
+        return f"**{text}**" if text else ""
+    if name in ("em", "i"):
+        text = inline(child).strip()
+        return f"*{text}*" if text else ""
+    if name in ("code", "tt"):
+        return f"`{inline(child).strip()}`"
+    if name == "a":
+        text = inline(child).strip()
+        href = child.get("href", "")
+        return f"[{text}]({href})" if href and text else text
+    if name == "br":
+        return " "
+    if name == "img":
+        alt = child.get("alt", "").strip()
+        return f"({alt})" if alt else ""
+    return inline(child)
+
+
 def inline(node):
     """Element contents -> a markdown string, keeping links and emphasis."""
-    out = []
-    for child in node.children:
-        name = getattr(child, "name", None)
-        if name is None:
-            out.append(re.sub(r"\s+", " ", str(child)))
-        elif name in ("strong", "b"):
-            text = inline(child).strip()
-            out.append(f"**{text}**" if text else "")
-        elif name in ("em", "i"):
-            text = inline(child).strip()
-            out.append(f"*{text}*" if text else "")
-        elif name in ("code", "tt"):
-            out.append(f"`{inline(child).strip()}`")
-        elif name == "a":
-            text = inline(child).strip()
-            href = child.get("href", "")
-            out.append(f"[{text}]({href})" if href and text else text)
-        elif name == "br":
-            out.append(" ")
-        elif name == "img":
-            alt = child.get("alt", "").strip()
-            if alt:
-                out.append(f"({alt})")
+    return re.sub(r" {2,}", " ",
+                  "".join(inline_child(child) for child in node.children))
+
+
+def item_content(li):
+    """An item's own text, and the lists nested inside it.
+
+    Rendering a nested list as part of its parent's text collapses a whole
+    sub-tree into one bullet: a real wiki page's table of contents arrived as
+    a single line carrying eight links.
+    """
+    own, nested = [], []
+    for child in li.children:
+        if getattr(child, "name", None) in ("ul", "ol"):
+            nested.append(child)
         else:
-            out.append(inline(child))
-    return re.sub(r" {2,}", " ", "".join(out))
+            own.append(child)
+    text = re.sub(r" {2,}", " ", "".join(inline_child(c) for c in own))
+    return text.strip(), nested
 
 
 def table_to_md(table):
@@ -99,8 +121,21 @@ def table_to_md(table):
     return out
 
 
+def emit_list(node, blocks, depth=0):
+    """A list and everything nested under it, indented by level."""
+    ordered = node.name == "ol"
+    for n, li in enumerate(node.find_all("li", recursive=False), 1):
+        text, nested = item_content(li)
+        if text:
+            blocks.append(("  " * depth) + (f"{n}. " if ordered else "- ") + text)
+        for sub in nested:
+            emit_list(sub, blocks, depth + 1 if text else depth)
+
+
 def walk(node, blocks, depth=0):
     for child in node.children:
+        if isinstance(child, PreformattedString):
+            continue             # a comment is not page text, however long
         name = getattr(child, "name", None)
         if name is None:
             text = re.sub(r"\s+", " ", str(child)).strip()
@@ -119,11 +154,7 @@ def walk(node, blocks, depth=0):
             blocks.extend(table_to_md(child))
             blocks.append("")
         elif name in ("ul", "ol"):
-            ordered = name == "ol"
-            for n, li in enumerate(child.find_all("li", recursive=False), 1):
-                text = inline(li).strip()
-                if text:
-                    blocks.append(("  " * depth) + (f"{n}. " if ordered else "- ") + text)
+            emit_list(child, blocks, depth)
             blocks.append("")
         elif name == "pre":
             blocks.append("```\n" + child.get_text().strip() + "\n```")

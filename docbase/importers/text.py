@@ -31,6 +31,21 @@ UNDERLINE_CHARS = "=-`:'\"~^_*+#<>"
 RE_FIELD = re.compile(r"^([A-Z][A-Za-z-]{2,20}):\s+(.+)$")
 
 
+def _rule(line):
+    """A row of one repeated character, as RST underlines a title with.
+
+    Left margin only: indented text is a code block, and a docstring's closing
+    \"\"\" under a line of example output is not a heading underline — which is
+    how the Python doctest manual came to be titled "120".
+    """
+    if line[:1] in (" ", "\t"):
+        return ""
+    bare = line.strip()
+    if len(bare) >= 3 and bare[0] in UNDERLINE_CHARS and bare == bare[0] * len(bare):
+        return bare[0]
+    return ""
+
+
 def underlined_headings(text):
     """Turn underlined headings into markdown ones.
 
@@ -46,21 +61,27 @@ def underlined_headings(text):
             skip = False
             continue
         nxt = lines[index + 1] if index + 1 < len(lines) else ""
-        stripped = nxt.strip()
-        is_underline = (
-            len(stripped) >= 3
-            and stripped[0] in UNDERLINE_CHARS
-            and stripped == stripped[0] * len(stripped)
-            and line.strip()
-            and len(stripped) >= len(line.strip()) - 2
-            and not line.strip()[0] in UNDERLINE_CHARS
+        after = lines[index + 2] if index + 2 < len(lines) else ""
+        title = line.strip()
+
+        # An overline: the same rule above the title as below it. Dropping it
+        # here lets the title be read on the next pass.
+        if _rule(line) and _rule(line) == _rule(after) and nxt.strip():
+            continue
+
+        char = _rule(nxt)
+        is_heading = (
+            char
+            and title
+            and not _rule(line)
+            and line[:1] not in (" ", "\t")
+            and len(nxt.strip()) >= len(title) - 2
         )
-        if is_underline:
-            char = stripped[0]
+        if is_heading:
             if char not in order:
                 order.append(char)
             level = min(order.index(char) + 1, 4)
-            out.append("#" * level + " " + line.strip())
+            out.append("#" * level + " " + title)
             skip = True                    # drop the underline itself
         else:
             out.append(line)

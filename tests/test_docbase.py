@@ -1394,3 +1394,187 @@ class TestRealWikiExport(BaseCase):
         rows = [l for l in graph.splitlines() if l.startswith("| `")]
         self.assertLessEqual(len(rows), link_module.GRAPH_MISSING_LIMIT)
         self.assertIn("references in total", graph)
+
+
+class TestRealTextArchive(BaseCase):
+    """Behaviour learned from a published documentation archive.
+
+    537 plain-text manuals, exported by the project itself. A third of them
+    arrived without their own title, because the heading rules had been
+    written against a fixture whose titles were plain words at the left
+    margin — real ones quote an identifier, carry a chapter number, and sit
+    a few lines above code that looks exactly like an underline.
+    """
+
+    def test_a_title_that_opens_with_a_quote_is_still_a_title(self):
+        """`"csv" --- CSV File Reading and Writing` is how a module is named."""
+        from docbase.importers.text import underlined_headings
+        converted = underlined_headings('"csv" --- CSV File Reading\n'
+                                        '**************************\n')
+        self.assertIn('# "csv" --- CSV File Reading', converted)
+
+    def test_a_numbered_chapter_title_is_still_a_title(self):
+        from docbase.importers.text import underlined_headings
+        converted = underlined_headings("1. Extending Python with C\n"
+                                        "**************************\n")
+        self.assertIn("# 1. Extending Python with C", converted)
+
+    def test_an_indented_rule_is_code_not_an_underline(self):
+        """A docstring's closing quotes under example output are not a heading.
+
+        This is how the doctest manual came to be titled "120": the number
+        was the output of a sample call, and the line below it closed the
+        docstring with three quotation marks.
+        """
+        from docbase.importers.text import underlined_headings
+        converted = underlined_headings('   >>> factorial(5)\n'
+                                        '   120\n'
+                                        '   """\n')
+        self.assertNotIn("#", converted)
+
+    def test_an_overline_does_not_survive_as_text(self):
+        from docbase.importers.text import underlined_headings
+        converted = underlined_headings("=========\nThe Title\n=========\n")
+        self.assertIn("# The Title", converted)
+        self.assertNotIn("=====", converted)
+
+    def test_the_document_is_named_after_its_own_title(self):
+        self.drop("cmdline-1.txt", '"csv" --- CSV File Reading\n'
+                                   '**************************\n\n'
+                                   'The module reads tabular data.\n\n'
+                                   'Examples\n========\n\nRead a file.\n')
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["csv-csv-file-reading.md"])
+
+
+class TestSuspectConversions(BaseCase):
+    """A file that converts to nothing must not enter the base.
+
+    Exporting a page you are not logged in for returns the login page, and it
+    imports exactly as cleanly as the real thing. The base then answers from a
+    document that says nothing — the one failure this design exists to stop.
+    """
+
+    def test_a_large_file_that_converts_to_nothing_is_refused(self):
+        self.drop("export.html",
+                  "<html><head><title>Log in</title></head><body>"
+                  "<div id=\"sidebar-container\"></div>"
+                  + "<!-- %s -->" % ("padding " * 2000) +
+                  "</body></html>")
+        report = self.sync(quiet=True)
+        self.assertEqual(self.text_files(), [])
+        self.assertEqual(len(report["failed"]), 1)
+        self.assertIn("almost no text", report["failed"][0][1])
+
+    def test_a_genuinely_short_document_still_imports(self):
+        self.drop("note.md", "# Office hours\n\nWe answer between 9 and 17.\n")
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["office-hours.md"])
+
+    def test_the_refusal_is_remembered_rather_than_retried(self):
+        self.drop("export.html", "<html><body><div></div>"
+                  + "<!-- %s -->" % ("padding " * 2000) + "</body></html>")
+        self.sync(quiet=True)
+        report = self.sync(quiet=True)
+        self.assertEqual(report["skipped"], 1)
+
+
+class TestNestedHtmlLists(BaseCase):
+    """A wiki's table of contents is a list inside a list.
+
+    Rendered as part of its parent item it collapses into one bullet: a real
+    page's contents arrived as a single line carrying eight links.
+    """
+
+    PAGE = ('<html><body><div id="main-content"><ul>'
+            '<li><a href="#a">How to set up a mirror</a></li>'
+            '<li><a href="#b">Configuration</a>'
+            '<ul><li><a href="#c">Whitelist</a></li>'
+            '<li><a href="#d">Producer timeout</a></li></ul></li>'
+            '</ul><p>Mirroring keeps a replica of a cluster.</p>'
+            '</div></body></html>')
+
+    def test_a_nested_list_is_indented_not_flattened(self):
+        self.drop("mirror.html", self.PAGE)
+        self.sync(quiet=True)
+        text = open(os.path.join(self.cfg.layout.path("text"),
+                                 self.text_files()[0]), encoding="utf-8").read()
+        self.assertIn("- [Configuration](#b)", text)
+        self.assertIn("  - [Whitelist](#c)", text)
+        self.assertIn("  - [Producer timeout](#d)", text)
+
+    def test_the_parent_item_keeps_only_its_own_text(self):
+        self.drop("mirror.html", self.PAGE)
+        self.sync(quiet=True)
+        text = open(os.path.join(self.cfg.layout.path("text"),
+                                 self.text_files()[0]), encoding="utf-8").read()
+        for line in text.splitlines():
+            self.assertLessEqual(line.count("]("), 1,
+                                 "a sub-list was folded into its parent item")
+
+
+class TestIndexStoresPositionsNotProse(BaseCase):
+    """The cache was twice the size of the base it indexed.
+
+    Keeping every fragment's text alongside the words it matches duplicates
+    the whole corpus on disk for no gain: only the handful of fragments
+    actually shown need their prose, and one document re-splits in
+    milliseconds.
+    """
+
+    def _base(self):
+        self.drop("guide.md", "# Refunds\n\n"
+                  + "A refund is issued within 14 days of the request. " * 12
+                  + "\n\n## Exceptions\n\nGift cards are never refunded.\n")
+        self.sync(quiet=True)
+        return Index(self.cfg)
+
+    def test_the_cache_does_not_hold_the_documents_text(self):
+        index = self._base().build()
+        self.assertTrue(index.chunks)
+        raw = open(index.cache_path(), encoding="utf-8").read()
+        self.assertNotIn("Gift cards are never refunded", raw)
+
+    def test_a_result_read_from_the_cache_still_carries_its_text(self):
+        self._base().build()                      # writes the cache
+        fresh = Index(self.cfg)
+        hits = fresh.search("gift cards refunded")
+        self.assertTrue(fresh.loaded_from_cache)
+        self.assertTrue(hits)
+        self.assertIn("Gift cards are never refunded", hits[0][4])
+
+    def test_the_same_query_answers_the_same_either_way(self):
+        built = Index(self.cfg)
+        self._base()
+        built.build()
+        from_cache = Index(self.cfg)
+        self.assertEqual([h[1:] for h in built.search("refund within days")],
+                         [h[1:] for h in from_cache.search("refund within days")])
+
+
+class TestHtmlCommentsAreNotContent(BaseCase):
+    """A comment is markup, not prose.
+
+    Emitted as text it becomes searchable: an analytics tag, a conditional
+    comment or a commented-out draft answers a question it was never part of.
+    """
+
+    def test_a_comment_does_not_reach_the_document(self):
+        self.drop("page.html",
+                  '<html><body><div id="main-content">'
+                  '<!-- internal note: this price is out of date -->'
+                  '<p>A refund takes 14 days.</p></div></body></html>')
+        self.sync(quiet=True)
+        text = open(os.path.join(self.cfg.layout.path("text"),
+                                 self.text_files()[0]), encoding="utf-8").read()
+        self.assertIn("A refund takes 14 days.", text)
+        self.assertNotIn("out of date", text)
+
+    def test_a_comment_is_not_searchable(self):
+        self.drop("page.html",
+                  '<html><body><div id="main-content">'
+                  '<!-- helicopter transfer costs 900 euro -->'
+                  '<p>Ground transfers are arranged on request.</p>'
+                  '</div></body></html>')
+        self.sync(quiet=True)
+        self.assertEqual(Index(self.cfg).search("helicopter"), [])

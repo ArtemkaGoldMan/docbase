@@ -37,6 +37,13 @@ DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".docx", ".mhtml", ".mht",
                   ".md", ".markdown", ".txt", ".rst", ".text")
 ARCHIVE_EXTENSIONS = (".zip",)
 
+#: A file this large that converts to a couple of words did not convert: it is
+#: a login or error page saved instead of the real one, a scan with no text
+#: layer, or a format that only looked readable. Importing it anyway is the
+#: worst outcome — the base then answers from a page that says nothing.
+SUSPICIOUS_SOURCE_BYTES = 8192
+MINIMUM_BODY_CHARS = 200
+
 
 # ---------------------------------------------------------------- helpers
 def slugify(text, extra_map=None, fallback="document"):
@@ -177,6 +184,24 @@ def _summarise(entries, what):
     if len(entries) <= LOG_LIMIT:
         return entries
     return entries[:LOG_LIMIT] + [f"… and {len(entries) - LOG_LIMIT} more {what}"]
+
+
+def body_length(markdown):
+    """Characters of prose: no frontmatter, no headings, no links table."""
+    text = re.sub(r"\A---\n.*?\n---\n", "", markdown, flags=re.S)
+    text = re.split(r"\n-{3,}\s*\n+#+ Links found", text)[0]
+    text = re.sub(r"^#.*$", "", text, flags=re.M)
+    return len(text.strip())
+
+
+def nothing_converted(markdown, source_bytes):
+    """-> why this import should be refused, or "" to go ahead."""
+    if source_bytes < SUSPICIOUS_SOURCE_BYTES:
+        return ""
+    if body_length(markdown) >= MINIMUM_BODY_CHARS:
+        return ""
+    return (f"{source_bytes // 1024} KB in, almost no text out — a login or "
+            "error page, a scan without a text layer, or an unreadable format")
 
 
 def document_title(markdown, fallback_name):
@@ -384,8 +409,15 @@ def run(cfg=None, quiet=False, force=False):
         try:
             markdown, slug = convert_document(path, cfg)
         except Exception as error:               # noqa: BLE001
-            failed.append((name, str(error)[:90]))
-            manifest[name] = {"sha1": digest, "stat": stat, "failed": str(error)[:90]}
+            reason = f"{str(error)[:70]} (damaged, or a format this cannot read)"
+            failed.append((name, reason))
+            manifest[name] = {"sha1": digest, "stat": stat, "failed": reason}
+            continue
+
+        empty = nothing_converted(markdown, os.path.getsize(path))
+        if empty:
+            failed.append((name, empty))
+            manifest[name] = {"sha1": digest, "stat": stat, "failed": empty}
             continue
 
         page_id = page_id_of(markdown)
@@ -466,7 +498,6 @@ def _align_assets(cfg, slug, out_name, markdown):
 def _print_report(cfg, report):
     for name, why in report["failed"]:
         print(f"  ! could not read '{name}': {why}")
-        print("    the file is damaged or in an unsupported format")
 
     if not report["documents"]:
         print("The base is empty. Export a page from your wiki "

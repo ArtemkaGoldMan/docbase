@@ -131,6 +131,7 @@ class Index:
         self.cfg = cfg
         self._key = None
         self.chunks = []
+        self._bodies = (None, [])
         self.idf = {}
         self.loaded_from_cache = False
 
@@ -182,8 +183,8 @@ class Index:
         if data.get("settings") != self.settings_key():
             return False
         try:
-            self.chunks = [(n, l, h, b, set(bs), set(hs))
-                           for n, l, h, b, bs, hs in data["chunks"]]
+            self.chunks = [(n, l, h, q, set(bs), set(hs))
+                           for n, l, h, q, bs, hs in data["chunks"]]
             self.idf = data["idf"]
         except (KeyError, TypeError, ValueError):
             return False
@@ -196,8 +197,8 @@ class Index:
             os.makedirs(os.path.dirname(self.cache_path()), exist_ok=True)
             payload = {"key": [list(entry) for entry in key],
                        "settings": self.settings_key(),
-                       "chunks": [[n, l, h, b, sorted(bs), sorted(hs)]
-                                  for n, l, h, b, bs, hs in self.chunks],
+                       "chunks": [[n, l, h, q, sorted(bs), sorted(hs)]
+                                  for n, l, h, q, bs, hs in self.chunks],
                        "idf": self.idf}
             temporary = self.cache_path() + ".tmp"
             with open(temporary, "w", encoding="utf-8") as handle:
@@ -226,13 +227,15 @@ class Index:
         if self._load_cache(key):
             return self
         chunks, frequency = [], {}
+        self._bodies = (None, [])
         for name, path in files:
             settings = self.cfg.search
             overlap = int(settings.chunk_chars * settings.chunk_overlap)
-            for line_no, heading, body in sections(path, settings.chunk_chars, overlap):
+            parts = sections(path, settings.chunk_chars, overlap)
+            for seq, (line_no, heading, body) in enumerate(parts):
                 body_stems = self.stems(body)
                 head_stems = self.stems(heading)
-                chunks.append((name, line_no, heading, body, body_stems, head_stems))
+                chunks.append((name, line_no, heading, seq, body_stems, head_stems))
                 for token in body_stems | head_stems:
                     frequency[token] = frequency.get(token, 0) + 1
         total = max(len(chunks), 1)
@@ -242,6 +245,25 @@ class Index:
         self.loaded_from_cache = False
         self._save_cache(key)
         return self
+
+    def snippet(self, name, seq):
+        """The text of one fragment, read back from the document.
+
+        The index stores what a fragment *matches*, not what it says: keeping
+        the prose as well made the cache twice the size of the base it was
+        built from. Only the handful of fragments actually shown need their
+        text, and re-splitting one document to get them costs milliseconds.
+        """
+        if self._bodies[0] != name:
+            path = dict(self.files()).get(name)
+            settings = self.cfg.search
+            overlap = int(settings.chunk_chars * settings.chunk_overlap)
+            parts = [body for _, _, body in
+                     sections(path, settings.chunk_chars, overlap)] if path else []
+            self._bodies = (name, parts)
+        parts = self._bodies[1]
+        return parts[seq] if 0 <= seq < len(parts) else ""
+
 
     # -- querying ---------------------------------------------------------
     def search(self, query, limit=None):
@@ -263,7 +285,7 @@ class Index:
         settings = self.cfg.search
 
         hits = []
-        for name, line_no, heading, body, body_stems, head_stems in self.chunks:
+        for name, line_no, heading, seq, body_stems, head_stems in self.chunks:
             in_body = wanted & body_stems
             in_head = wanted & head_stems
             if not in_body and not in_head:
@@ -273,9 +295,10 @@ class Index:
             coverage = gained / budget
             density = len(in_body) / max(len(body_stems), 1)
             score = (coverage + settings.density_weight * density) * known_ratio
-            hits.append((score, name, line_no, heading, body))
+            hits.append((score, name, line_no, heading, seq))
         hits.sort(key=lambda hit: (-hit[0], hit[1], hit[2]))
-        return hits[:limit]
+        return [(score, name, line_no, heading, self.snippet(name, seq))
+                for score, name, line_no, heading, seq in hits[:limit]]
 
     def headings(self, name):
         path = dict(self.files()).get(name)
