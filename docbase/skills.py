@@ -21,9 +21,10 @@ RE_FIELD = re.compile(r"^(\w+):\s*(.*)$", re.M)
 #: conversation that touches it.
 BODY_LIMIT = 150
 
-#: Paths a skill tells the agent to read. One that no longer exists sends the
-#: agent looking for a card that was renamed three imports ago.
-RE_BASE_PATH = re.compile(r"`?(kb/[\w./-]+)`?")
+#: A path a skill tells the agent to read. Only ones below a layout folder:
+#: `kb/cards/` is the base describing itself, `kb/cards/refunds/` is a claim
+#: that a particular card is there.
+RE_BASE_PATH = re.compile(r"`?(kb/[\w.-]+/[\w./-]+)`?")
 
 
 def _fields(head):
@@ -31,7 +32,7 @@ def _fields(head):
             for m in RE_FIELD.finditer(head)}
 
 
-def check_skill(path, root):
+def check_skill(path, root, check_paths=True):
     """-> [(skill name, what is wrong)] for one SKILL.md."""
     folder = os.path.basename(os.path.dirname(path))
     try:
@@ -60,10 +61,14 @@ def check_skill(path, root):
         found.append((folder, f"{lines} lines of body; it loads on every "
                               f"trigger, so keep it under {BODY_LIMIT}"))
 
-    for reference in sorted(set(RE_BASE_PATH.findall(body))):
-        target = os.path.join(root, reference.rstrip("/"))
-        if not os.path.exists(target):
-            found.append((folder, f"points at {reference}, which is not there"))
+    if check_paths:
+        for reference in sorted(set(RE_BASE_PATH.findall(body))):
+            if "<" in reference or ">" in reference:
+                continue                 # a placeholder, not a path
+            target = os.path.join(root, *reference.rstrip("/").split("/"))
+            if not os.path.exists(target):
+                found.append((folder,
+                              f"points at {reference}, which is not there"))
     return found
 
 
@@ -79,10 +84,18 @@ def find_skills(root):
     return out
 
 
-def report(root):
-    """-> (how many skills, [(name, complaint)])."""
+def report(root, text_dir="kb/text"):
+    """-> (how many skills, [(name, complaint)]).
+
+    Paths are only checked once something has been imported. On an empty base
+    every path a skill names is missing, which says nothing about the skill —
+    and a check that fires when nothing is wrong is a check people learn to
+    scroll past.
+    """
+    populated = bool(os.path.isdir(os.path.join(root, *text_dir.split("/")))
+                     and os.listdir(os.path.join(root, *text_dir.split("/"))))
     skills = find_skills(root)
     problems = []
     for path in skills:
-        problems.extend(check_skill(path, root))
+        problems.extend(check_skill(path, root, check_paths=populated))
     return len(skills), problems

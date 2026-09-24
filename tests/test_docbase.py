@@ -2249,7 +2249,12 @@ class TestGeneratedSkills(BaseCase):
         from docbase import skills
         return skills.report(self.root)[1]
 
+    def _imported(self):
+        self.drop("note.md", "# Handbook\n\nAsk before booking.\n")
+        self.sync(quiet=True)
+
     def test_a_sound_skill_is_not_complained_about(self):
+        self._imported()
         self._card()
         self._skill("raise-a-proposal", self.GOOD)
         self.assertEqual(self._problems(), [])
@@ -2259,12 +2264,14 @@ class TestGeneratedSkills(BaseCase):
         self.assertIn("never load", self._problems()[0][1])
 
     def test_a_missing_description_is_caught(self):
+        self._imported()
         self._card()
         self._skill("raise-a-proposal",
                     re.sub(r"description:.*\n", "", self.GOOD))
         self.assertIn("trigger", self._problems()[0][1])
 
     def test_a_name_that_drifted_from_its_folder_is_caught(self):
+        self._imported()
         self._card()
         self._skill("raise-a-proposal",
                     self.GOOD.replace("name: raise-a-proposal",
@@ -2272,10 +2279,37 @@ class TestGeneratedSkills(BaseCase):
         self.assertIn("folder", self._problems()[0][1])
 
     def test_a_path_that_is_no_longer_there_is_caught(self):
+        self._imported()
         self._skill("raise-a-proposal", self.GOOD)     # the card is not created
         self.assertIn("kb/cards/proposals/", self._problems()[0][1])
 
+    def test_an_empty_base_is_not_told_its_paths_are_missing(self):
+        """Nothing has been imported, so of course kb/cards is not there.
+
+        The toolkit's own skills tripped this on a fresh checkout, which is
+        exactly how a checker teaches people to scroll past it.
+        """
+        self._skill("raise-a-proposal", self.GOOD)
+        self.assertEqual(self._problems(), [])
+
+    def test_naming_a_layout_folder_is_not_a_claim_about_a_file(self):
+        self._imported()
+        self._skill("docs-search",
+                    "---\nname: docs-search\ndescription: Answer from the "
+                    "base. Use when asked what the documentation says.\n---\n\n"
+                    "# Search\n\nImages live in `kb/assets/`, history in "
+                    "`kb/history/`.\n")
+        self.assertEqual(self._problems(), [])
+
+    def test_a_placeholder_is_not_a_path(self):
+        self._imported()
+        self._skill("raise-a-proposal",
+                    self.GOOD.replace("kb/cards/proposals/",
+                                      "kb/cards/<topic>/"))
+        self.assertEqual(self._problems(), [])
+
     def test_a_body_that_loads_on_every_trigger_is_kept_short(self):
+        self._imported()
         self._card()
         self._skill("raise-a-proposal", self.GOOD + "\nfiller\n" * 200)
         self.assertIn("under 150", self._problems()[0][1])

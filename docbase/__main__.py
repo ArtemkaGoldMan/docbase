@@ -157,7 +157,7 @@ def cmd_doctor(args, cfg):
         print(f"  {which:<10}{count} entries")
 
     from . import skills as skills_module
-    count, problems = skills_module.report(cfg.layout.root)
+    count, problems = skills_module.report(cfg.layout.root, cfg.layout.text)
     if count or problems:
         print(f"  skills    {count} written for this base")
     for name, complaint in problems:
