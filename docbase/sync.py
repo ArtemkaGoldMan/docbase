@@ -154,6 +154,28 @@ def collect_dropped(cfg, log):
                    else f"{duplicates[0]} is already in the base; removed the copy")
 
 
+def _common_folder(members):
+    """The single top folder an export wraps itself in, if there is one."""
+    tops = {m.split("/", 1)[0] for m in members if "/" in m}
+    return tops.pop() + "/" if len(tops) == 1 and not any(
+        "/" not in m for m in members) else ""
+
+
+def flatten_member(member, prefix=""):
+    """An archive path -> one safe file name that still says where it came from.
+
+    A member path is untrusted input, so the directories cannot be kept as
+    directories. Folding them into the name instead of discarding them is what
+    makes the name stable: a space export holds a dozen files called
+    index.html, and keeping only the basename made which document was which
+    depend on the order the archive happened to list them in.
+    """
+    path = member[len(prefix):] if prefix and member.startswith(prefix) else member
+    parts = [part for part in path.split("/")
+             if part and part not in (".", "..")]
+    return "-".join(parts)
+
+
 def unpack_archives(cfg, log):
     """A space export arrives as one zip holding hundreds of pages.
 
@@ -168,12 +190,12 @@ def unpack_archives(cfg, log):
         taken = 0
         try:
             with zipfile.ZipFile(path) as archive:
-                for member in archive.namelist():
-                    if member.endswith("/") or not member.lower().endswith(DOC_EXTENSIONS):
-                        continue
-                    # Flatten: a member path is untrusted input, and nested
-                    # directories would escape the base with ../ entries.
-                    flat = os.path.basename(member)
+                members = [m for m in archive.namelist()
+                           if not m.endswith("/")
+                           and m.lower().endswith(DOC_EXTENSIONS)]
+                prefix = _common_folder(members)
+                for member in members:
+                    flat = flatten_member(member, prefix)
                     if not flat:
                         continue
                     target = os.path.join(layout.root, flat)

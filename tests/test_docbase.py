@@ -1821,3 +1821,66 @@ class TestReExportUpdatesTheDocument(BaseCase):
         self.drop("escalation.md", self._version(2))
         report = self.sync(quiet=True)
         self.assertEqual(report["skipped"], 0)
+
+
+class TestArchiveMemberNames(BaseCase):
+    """An export holds a dozen files called index.html.
+
+    Kept by basename alone, which document ended up as index-3 depended on the
+    order the archive happened to list its members in — so re-importing the
+    same space could quietly rebind a name to a different page.
+    """
+
+    def _archive(self, name, members):
+        import zipfile
+        path = os.path.join(self.root, name)
+        with zipfile.ZipFile(path, "w") as archive:
+            for member, body in members.items():
+                archive.writestr(member, body)
+        return path
+
+    def test_the_folder_is_kept_in_the_name(self):
+        self._archive("space.zip", {
+            "export/library/index.md": "# Library\n\nModules are documented here.\n",
+            "export/tutorial/index.md": "# Tutorial\n\nStart with the basics.\n",
+        })
+        self.sync(quiet=True)
+        self.assertEqual(sorted(os.listdir(self.cfg.layout.path("originals"))),
+                         ["library-index.md", "tutorial-index.md"])
+
+    def test_both_documents_survive(self):
+        self._archive("space.zip", {
+            "export/library/index.md": "# Library\n\nModules are documented here.\n",
+            "export/tutorial/index.md": "# Tutorial\n\nStart with the basics.\n",
+        })
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["library.md", "tutorial.md"])
+
+    def test_re_importing_the_same_export_changes_nothing(self):
+        members = {
+            "export/library/index.md": "# Library\n\nModules are documented here.\n",
+            "export/tutorial/index.md": "# Tutorial\n\nStart with the basics.\n",
+        }
+        self._archive("space.zip", members)
+        self.sync(quiet=True)
+        self._archive("space.zip", members)
+        report = self.sync(quiet=True)
+        self.assertEqual(report["documents"], 2)
+        self.assertEqual(len(os.listdir(self.cfg.layout.path("originals"))), 2)
+
+    def test_a_newer_export_updates_the_document(self):
+        self._archive("space.zip", {
+            "export/library/index.md": "# Library\n\nModules are documented here.\n"})
+        self.sync(quiet=True)
+        self._archive("space.zip", {
+            "export/library/index.md": "# Library\n\nModules are listed here.\n"})
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["library.md"])
+        text = open(os.path.join(self.cfg.layout.path("text"), "library.md"),
+                    encoding="utf-8").read()
+        self.assertIn("listed here", text)
+
+    def test_a_traversing_member_cannot_escape_the_base(self):
+        from docbase.sync import flatten_member
+        self.assertEqual(flatten_member("../../etc/passwd.md"), "etc-passwd.md")
+        self.assertEqual(flatten_member("/absolute/path.md"), "absolute-path.md")
