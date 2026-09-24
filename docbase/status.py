@@ -13,6 +13,11 @@ import time
 from . import config as config_module
 from . import sync as sync_module
 
+#: Status answers "is the base current?", and this report is also read by an
+#: agent that pays for every line. Naming five hundred documents to say they
+#: are all fine is not an answer worth ten thousand tokens.
+DOCUMENT_LIMIT = 40
+
 
 def _recent_changes(cfg, limit=5):
     history = cfg.layout.path("history")
@@ -67,11 +72,14 @@ def report(cfg=None):
         return 1
 
     print(f"Documents: {len(documents)}")
-    for name in documents:
+    for name in documents[:DOCUMENT_LIMIT]:
         path = os.path.join(text_dir, name)
         changed = time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(path)))
         size = os.path.getsize(path)
         print(f"  {name:<44} {size // 1024:>4} KB   updated {changed}")
+    if len(documents) > DOCUMENT_LIMIT:
+        print(f"  … and {len(documents) - DOCUMENT_LIMIT} more "
+              f"(docbase map lists them all)")
 
     manifest = sync_module.read_manifest(layout.path("manifest"))
     broken = [(n, e["failed"]) for n, e in manifest.items() if e.get("failed")]

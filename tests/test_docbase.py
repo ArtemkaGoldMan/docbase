@@ -855,7 +855,8 @@ class TestMcpServer(BaseCase):
         """A broken tool must come back as a result the model can react to."""
         from docbase import mcp
         original = mcp._list_documents
-        mcp._list_documents = lambda cfg: (_ for _ in ()).throw(RuntimeError("boom"))
+        mcp._list_documents = lambda cfg, arguments=None: (
+            (_ for _ in ()).throw(RuntimeError("boom")))
         try:
             reply = self._ask({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                                "params": {"name": "list_documents"}})
@@ -1578,3 +1579,76 @@ class TestHtmlCommentsAreNotContent(BaseCase):
                   '</div></body></html>')
         self.sync(quiet=True)
         self.assertEqual(Index(self.cfg).search("helicopter"), [])
+
+
+class TestMapIsProgressive(BaseCase):
+    """The map is read by an agent that pays for every line of it.
+
+    Five hundred documents with their sections came to fifty-seven thousand
+    tokens through the MCP server — more than the base exists to save, and
+    more than most context windows hold.
+    """
+
+    def _many(self, count):
+        for n in range(count):
+            self.drop(f"doc{n}.md",
+                      f"# Document {n}\n\n## First part\n\nText about topic {n}.\n"
+                      f"\n## Second part\n\nMore about topic {n}.\n")
+        self.sync(quiet=True)
+        return Index(self.cfg).build()
+
+    def test_a_small_base_shows_its_sections(self):
+        from docbase.search import outline
+        lines = outline(self._many(3))
+        self.assertTrue(any("First part" in line for line in lines))
+
+    def test_a_large_base_names_documents_and_stops(self):
+        from docbase.search import outline, MAP_DOCUMENT_LIMIT
+        lines = outline(self._many(MAP_DOCUMENT_LIMIT + 5))
+        self.assertFalse(any("First part" in line for line in lines))
+        self.assertTrue(any("Name one to see its sections" in line for line in lines))
+
+    def test_naming_a_document_opens_it(self):
+        from docbase.search import outline, MAP_DOCUMENT_LIMIT
+        index = self._many(MAP_DOCUMENT_LIMIT + 5)
+        lines = outline(index, "document-7.md")
+        self.assertTrue(any("First part" in line for line in lines))
+        self.assertFalse(any("document-8.md" in line for line in lines))
+
+    def test_a_name_that_matches_nothing_says_so(self):
+        from docbase.search import outline
+        lines = outline(self._many(3), "no-such-document")
+        self.assertEqual(len(lines), 1)
+        self.assertIn("No document matches", lines[0])
+
+    def test_the_cap_is_honoured_and_declared(self):
+        from docbase.search import outline
+        lines = outline(self._many(10), cap=4)
+        self.assertTrue(any("6 more documents" in line for line in lines))
+
+    def test_a_document_with_many_sections_is_trimmed(self):
+        from docbase.search import outline, MAP_SECTION_LIMIT
+        body = "\n".join(f"## Section {n}\n\nText {n}.\n"
+                         for n in range(MAP_SECTION_LIMIT + 10))
+        self.drop("big.md", "# Big\n\n" + body)
+        self.sync(quiet=True)
+        lines = outline(Index(self.cfg).build())
+        self.assertTrue(any("more sections" in line for line in lines))
+
+    def test_status_does_not_name_every_document(self):
+        from docbase import status
+        self._many(60)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            status.report(self.cfg)
+        printed = out.getvalue()
+        self.assertIn("Documents: 60", printed)
+        self.assertIn("more (docbase map lists them all)", printed)
+        self.assertLess(len(printed.splitlines()), 50)
+
+    def test_list_documents_over_mcp_takes_a_name(self):
+        from docbase import mcp
+        self._many(3)
+        answer = mcp.call_tool(self.cfg, "list_documents",
+                               {"document": "document-1.md"})
+        self.assertIn("document-1.md", answer)
+        self.assertNotIn("document-2.md", answer)

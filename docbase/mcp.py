@@ -29,6 +29,11 @@ DEFAULT_PROTOCOL = "2024-11-05"
 
 SERVER_INFO = {"name": "docbase", "version": "0.1.0"}
 
+#: A tool answer is spent from the caller's context. Listing five hundred
+#: documents with their sections cost fifty-seven thousand tokens — more than
+#: the whole base exists to save.
+LIST_DOCUMENT_CAP = 200
+
 TOOLS = [
     {
         "name": "search_documentation",
@@ -56,11 +61,20 @@ TOOLS = [
     {
         "name": "list_documents",
         "description": (
-            "List every document in the base with its sections and their line "
-            "numbers. Use it to find out what the base covers before concluding "
-            "an answer is missing, or to choose where to read directly."
+            "What the base covers. Called with no argument it lists the "
+            "documents, with their sections when there are few enough to be "
+            "worth reading. Name a document to see that one's sections and "
+            "their line numbers. Use it before concluding an answer is "
+            "missing, or to choose where to read directly."
         ),
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document": {"type": "string",
+                             "description": "Name or title fragment. Omit for "
+                                            "the whole base."},
+            },
+        },
     },
     {
         "name": "read_section",
@@ -147,22 +161,12 @@ def _search(cfg, arguments):
     return "\n".join(lines).strip()
 
 
-def _list_documents(cfg):
-    from .search import Index, clean
-    import re
+def _list_documents(cfg, arguments=None):
+    from .search import Index, outline
 
     index = Index(cfg).build()
-    files = index.files()
-    if not files:
-        return "The base is empty."
-    out = []
-    for name, path in files:
-        text = open(path, encoding="utf-8").read()
-        title = re.search(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", text, re.M)
-        out.append(f"{name} — {clean(title.group(1)) if title else name}")
-        for line_no, heading in index.headings(name):
-            out.append(f"  {line_no:>5}  {heading}")
-    return "\n".join(out)
+    wanted = ((arguments or {}).get("document") or "").strip()
+    return "\n".join(outline(index, wanted, cap=LIST_DOCUMENT_CAP))
 
 
 def _read_section(cfg, arguments):
@@ -185,7 +189,7 @@ def call_tool(cfg, name, arguments):
     if name == "search_documentation":
         return _search(cfg, arguments)
     if name == "list_documents":
-        return _list_documents(cfg)
+        return _list_documents(cfg, arguments)
     if name == "read_section":
         return _read_section(cfg, arguments)
     if name == "base_status":

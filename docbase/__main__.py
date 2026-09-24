@@ -55,7 +55,7 @@ def cmd_find(args, cfg):
 
     if not hits:
         print("LOW CONFIDENCE: nothing matched at all.\n")
-        _print_map(index)
+        _print_map(index, cap=25)
         print("\nThis topic may not be in the base. Check the map above "
               "before concluding the answer is missing.")
         return 0
@@ -91,15 +91,10 @@ def cmd_find(args, cfg):
     return 0
 
 
-def _print_map(index):
-    import re
-    for name, path in index.files():
-        text = open(path, encoding="utf-8").read()
-        title = re.search(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", text, re.M)
-        from .search import clean
-        print(f"\n## {name} — {clean(title.group(1)) if title else name}")
-        for line_no, heading in index.headings(name):
-            print(f"  {line_no:>5}  {heading}")
+def _print_map(index, wanted="", cap=0):
+    from .search import outline
+    for line in outline(index, wanted, cap):
+        print(line)
 
 
 def cmd_map(args, cfg):
@@ -108,7 +103,7 @@ def cmd_map(args, cfg):
     if not index.files():
         print("The base is empty.")
         return 1
-    _print_map(index)
+    _print_map(index, getattr(args, "document", "") or "")
     return 0
 
 
@@ -186,6 +181,8 @@ def build_parser():
     p.set_defaults(func=cmd_find)
 
     p = subparsers.add_parser("map", help="documents and their sections")
+    p.add_argument("document", nargs="?", default="",
+                   help="name or title fragment; shows that document's sections")
     p.set_defaults(func=cmd_map)
 
     p = subparsers.add_parser("status", help="what is stale, changed or missing")

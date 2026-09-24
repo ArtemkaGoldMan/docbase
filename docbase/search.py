@@ -28,6 +28,16 @@ import re
 from . import config as config_module
 
 RE_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+RE_DOC_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", re.M)
+
+#: Past this many documents the map names them and stops. The sections of
+#: five hundred manuals are sixty thousand tokens — more than the answer they
+#: were meant to help find, and more than most context windows hold.
+MAP_DOCUMENT_LIMIT = 40
+
+#: A reference manual can carry hundreds of headings. Enough of them to
+#: recognise the document is orientation; all of them is the document.
+MAP_SECTION_LIMIT = 30
 RE_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 RE_SENTENCE = re.compile(r"(?<=[.!?:])\s+|(?=[•▪✅❌⛔⚠])")
 
@@ -35,6 +45,16 @@ RE_SENTENCE = re.compile(r"(?<=[.!?:])\s+|(?=[•▪✅❌⛔⚠])")
 def stem(word, length):
     word = word.lower().strip("«»\"'.,:;!?()[]–—-")
     return word[:length] if len(word) > length else word
+
+
+def title_of(path):
+    """The document's own title, or its file name if it declares none."""
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        return os.path.basename(path)
+    found = RE_DOC_TITLE.search(text)
+    return clean(found.group(1)) if found else os.path.basename(path)
 
 
 def clean(line):
@@ -313,3 +333,44 @@ class Index:
                     out.append((number, heading))
         return out
 
+
+def outline(index, wanted="", cap=0):
+    """What the base holds -> lines, disclosed progressively.
+
+    With a handful of documents the sections are the useful part. With five
+    hundred they are noise, so the map names the documents and waits to be
+    asked about one of them.
+    """
+    files = index.files()
+    if not files:
+        return ["The base is empty."]
+
+    needle = wanted.strip().lower()
+    if needle:
+        files = [(name, path) for name, path in files
+                 if needle in name.lower() or needle in title_of(path).lower()]
+        if not files:
+            return [f"No document matches {wanted!r}. "
+                    "Ask for the map without a name to see them all."]
+
+    detailed = bool(needle) or len(files) <= MAP_DOCUMENT_LIMIT
+    shown = files[:cap] if cap and len(files) > cap else files
+
+    out = []
+    for name, path in shown:
+        title = title_of(path)
+        if not detailed:
+            out.append(f"{name} — {title}")
+            continue
+        out.append(f"\n## {name} — {title}")
+        headings = index.headings(name)
+        for line_no, heading in headings[:MAP_SECTION_LIMIT]:
+            out.append(f"  {line_no:>5}  {heading}")
+        if len(headings) > MAP_SECTION_LIMIT:
+            out.append(f"        … {len(headings) - MAP_SECTION_LIMIT} more sections")
+
+    if len(shown) < len(files):
+        out.append(f"… and {len(files) - len(shown)} more documents")
+    if not detailed:
+        out.append(f"\n{len(files)} documents. Name one to see its sections.")
+    return out

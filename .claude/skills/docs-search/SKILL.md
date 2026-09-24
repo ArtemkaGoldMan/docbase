@@ -23,6 +23,13 @@ Don't know what is in the base at all:
 python -m docbase map
 ```
 
+On a large base that names the documents without their sections. Name one to
+open it:
+
+```bash
+python -m docbase map "invoicing"
+```
+
 ## When the output says LOW CONFIDENCE
 
 This is not a signal to give up. It means the words of the question did not

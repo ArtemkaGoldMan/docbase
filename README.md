@@ -117,7 +117,7 @@ that PDF flattens away. Markdown passes through untouched.
 | `docbase init` | create a config in this folder |
 | `docbase sync` | import new files, refresh what changed |
 | `docbase find` | search, return ranked fragments |
-| `docbase map` | documents and their sections |
+| `docbase map [name]` | documents, and one document's sections |
 | `docbase status` | what is stale, changed or missing |
 | `docbase eval` | measure retrieval quality on your own corpus |
 | `docbase verify` | check extracts still match their source |

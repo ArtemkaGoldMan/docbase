@@ -30,7 +30,7 @@ faster than it earns anything.
 |---|---|
 | `python -m docbase sync` | import and refresh |
 | `python -m docbase find "..."` | ranked fragments with `file:line` |
-| `python -m docbase map` | documents and their sections |
+| `python -m docbase map [name]` | documents, and one document's sections |
 | `python -m docbase status` | stale, changed, missing |
 | `python -m docbase eval` | retrieval quality |
 | `python -m docbase verify` | extracts still match their source |
