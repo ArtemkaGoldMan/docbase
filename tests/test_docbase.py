@@ -1329,3 +1329,68 @@ class TestRealWordDocument(BaseCase):
     def test_a_document_without_numbering_still_imports(self):
         body = self._body(numbering=False)
         self.assertIn("Open the request", body)
+
+
+class TestRealWikiExport(BaseCase):
+    """Behaviour learned from pages served by an actual Confluence.
+
+    The fixture used until now was idealised in the two ways that mattered
+    most: it linked with absolute URLs and had no separate page title.
+    """
+
+    PAGE = '''<!DOCTYPE html><html><head>
+<meta name="ajs-page-id" content="{page_id}">
+<meta name="ajs-page-title" content="{title}">
+<title>{title} - Apache Kafka - Apache Software Foundation</title></head><body>
+<div id="main-content">
+<p>{body}</p>
+{extra}
+</div></body></html>'''
+
+    def _wiki(self, name, page_id, title, body, extra=""):
+        self.drop(name, self.PAGE.format(page_id=page_id, title=title,
+                                         body=body, extra=extra))
+
+    def test_the_page_title_is_used_not_the_browser_tab_title(self):
+        """A tab title carries the site and space name too."""
+        self._wiki("a.html", 900, "Contributing Code Changes",
+                   "Open a pull request against trunk.")
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["contributing-code-changes.md"])
+
+    def test_a_relative_link_resolves(self):
+        """More than half the links on a real wiki page are relative."""
+        link = ('<p>See <a href="/confluence/spaces/KAFKA/pages/901/System+Tools">'
+                'System Tools</a>.</p>')
+        self._wiki("a.html", 900, "Contributing Code Changes",
+                   "Open a pull request.", link)
+        self._wiki("b.html", 901, "System Tools", "The offset checker prints lag.")
+        self.sync(quiet=True)
+
+        body = open(os.path.join(self.cfg.layout.path("text"),
+                                 "contributing-code-changes.md"),
+                    encoding="utf-8").read().split("## Links found")[0]
+        self.assertIn("(system-tools.md)", body)
+
+    def test_a_relative_link_to_a_missing_page_is_named_readably(self):
+        """A number scraped out of a title makes a list nobody can act on."""
+        link = ('<p>See <a href="/confluence/display/KAFKA/KIP-500+Replace+ZooKeeper">'
+                'KIP-500</a>.</p>')
+        self._wiki("a.html", 900, "Contributing Code Changes", "Body.", link)
+        report = self.sync(quiet=True)
+        keys = list(report["link"]["missing"])
+        self.assertTrue(any("kip-500" in k for k in keys), keys)
+
+    def test_the_missing_list_in_the_map_is_capped(self):
+        """A wiki index page can reference a thousand others."""
+        from docbase import link as link_module
+        links = "".join(
+            f'<p><a href="/confluence/spaces/KAFKA/pages/{2000 + i}/Page+{i}">P{i}</a></p>'
+            for i in range(link_module.GRAPH_MISSING_LIMIT + 25))
+        self._wiki("index.html", 900, "Index", "Many links.", links)
+        self.sync(quiet=True)
+
+        graph = open(os.path.join(self.root, "kb", "graph.md"), encoding="utf-8").read()
+        rows = [l for l in graph.splitlines() if l.startswith("| `")]
+        self.assertLessEqual(len(rows), link_module.GRAPH_MISSING_LIMIT)
+        self.assertIn("references in total", graph)

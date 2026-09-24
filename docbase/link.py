@@ -24,6 +24,10 @@ SOURCES = "kb/sources"
 LINKMAP = "kb/linkmap.json"
 GRAPH = "kb/graph.md"
 
+#: A wiki index page can reference a thousand others. The full list lives in
+#: linkmap.json; the map is meant to be read.
+GRAPH_MISSING_LIMIT = 40
+
 RE_FRONTMATTER = re.compile(r"^---\n(.*?)\n---\n", re.S)
 from . import frontmatter
 from . import resolve as resolve_module
@@ -75,13 +79,40 @@ def scan(sources_dir):
     return documents
 
 
+def missing_key(url, resolver, pattern, is_internal):
+    """How to name a document the base does not have.
+
+    A page id when the URL carries one. Otherwise the page's own name, taken
+    from the URL — a wiki's human-facing links have no id in them, and a
+    number scraped out of the title makes a list nobody can act on.
+    """
+    if url.startswith("/"):
+        page_id = resolver.page_id_of(url, resolve_module.RE_RELATIVE_PAGE)
+    elif pattern is not None:
+        page_id = resolver.page_id_of(url, pattern)
+    else:
+        page_id = None
+    if page_id:
+        return page_id
+    if not (url.startswith("/") or is_internal(url)):
+        return None                       # an ordinary link to the outside
+
+    from urllib.parse import unquote, urlsplit
+    tail = os.path.basename(urlsplit(unquote(url)).path.rstrip("/"))
+    slug = re.sub(r"[^a-z0-9]+", "-", tail.lower()).strip("-")
+    if slug and not slug.isdigit():
+        return slug[:60]
+    found = resolve_module.identifiers(url)
+    return sorted(found, key=len, reverse=True)[0] if found else None
+
+
 def relink(text, self_name, resolver, stats, pattern=None,
            is_internal=lambda url: False):
     """Rewrite the links inside one document."""
     def repl(m):
         label, url = m.group(1), m.group(2)
-        if not url.startswith(("http://", "https://")):
-            return m.group(0)                       # already local
+        if not url.startswith(("http://", "https://", "/")):
+            return m.group(0)                       # already a local file
         target = resolver.resolve(url, pattern, exclude=self_name)
         if target:
             anchor = RE_ANCHOR.search(unquote(url))
@@ -102,14 +133,9 @@ def relink(text, self_name, resolver, stats, pattern=None,
         # "Missing" means a document this base ought to hold, not any link to
         # the outside world. Without that distinction the list fills with DOI
         # prefixes, dates and section numbers, and stops being read.
-        page_id = resolver.page_id_of(url, pattern) if pattern is not None else None
-        if page_id:
-            stats["missing"].setdefault(page_id, set()).add(label[:60])
-        elif is_internal(url):
-            found = resolve_module.identifiers(url)
-            if found:
-                key = sorted(found, key=len, reverse=True)[0]
-                stats["missing"].setdefault(key, set()).add(label[:60])
+        key = missing_key(url, resolver, pattern, is_internal)
+        if key:
+            stats["missing"].setdefault(key, set()).add(label[:60])
         return m.group(0)
 
     return RE_MD_LINK.sub(repl, text)
@@ -169,12 +195,19 @@ def run(sources=SOURCES, check=False, quiet=False, internal_hosts=(),
         lines.append(f"| {info['title']} | [{name}](sources/{name}) | "
                      f"`{info.get('page_id') or '—'}` |")
 
+    missing = stats["missing"]
     lines += ["", "## Referenced but not imported yet", ""]
-    if stats["missing"]:
+    if missing:
+        if len(missing) > GRAPH_MISSING_LIMIT:
+            lines += [f"{len(missing)} references in total; the "
+                      f"{GRAPH_MISSING_LIMIT} most cited are listed here, and "
+                      f"the rest are in `linkmap.json`.", ""]
+        # Most cited first: those are the ones worth importing next.
+        ordered = sorted(missing.items(), key=lambda kv: (-len(kv[1]), kv[0]))
         lines += ["| identifier | Referred to as |", "|---|---|"]
-        for key, labels in sorted(stats["missing"].items()):
+        for key, labels in ordered[:GRAPH_MISSING_LIMIT]:
             shown = "; ".join(sorted(labels)[:3]).replace("|", "/") or "—"
-            lines.append(f"| `{key}` | {shown} |")
+            lines.append(f"| `{key}` | {shown[:90]} |")
     else:
         lines.append("Everything referenced is already available locally.")
 

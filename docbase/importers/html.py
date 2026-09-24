@@ -161,8 +161,20 @@ def convert(path):
                 page_id = m.group(1) or m.group(2)
                 break
 
-    title = soup.find("title")
-    title = title.get_text().strip() if title else os.path.basename(path)
+    # A browser tab title carries the site and space name too: "Contributing
+    # Code Changes - Apache Kafka - Apache Software Foundation". Wikis publish
+    # the bare page title separately, and that is what the document is called.
+    title = ""
+    meta_title = soup.find("meta", attrs={"name": "ajs-page-title"})
+    if meta_title and meta_title.get("content", "").strip():
+        title = meta_title["content"].strip()
+    if not title:
+        heading = soup.select_one("#title-text")
+        if heading:
+            title = heading.get_text(" ", strip=True)
+    if not title:
+        tag = soup.find("title")
+        title = tag.get_text().strip() if tag else os.path.basename(path)
     if not any(b.startswith("# ") for b in blocks[:5]):
         blocks.insert(0, f"# {title}")
 

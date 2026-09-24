@@ -197,7 +197,7 @@ how much they prove:
 
 | | |
 |---|---|
-| page id | a wiki URL carrying the target's identifier |
+| page id | a wiki URL carrying the target's identifier, absolute or relative |
 | declared URL | the document said where it came from |
 | file name | the URL ends in the file that was imported |
 | document number | URL and document share `800-207`, `RFC 2119`, `POL-042` |
@@ -372,7 +372,7 @@ kb/graph.md     what exists, what is referenced but missing
 python -m unittest discover tests
 ```
 
-A hundred and two regression tests. Every one of them is a failure that actually
+A hundred and six regression tests. Every one of them is a failure that actually
 happened, most of them silent: a document overwritten by another with a similar
 title, one broken file aborting the whole import, an asset folder deleted along
 with hand-written notes, a half-written manifest from two concurrent runs.

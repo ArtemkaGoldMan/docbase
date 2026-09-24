@@ -97,11 +97,13 @@ def report(cfg=None):
     missing = _missing_pages(cfg)
     if missing:
         print(f"\nReferenced but not imported: {len(missing)} pages")
-        for page_id, labels in list(missing.items())[:8]:
+        ordered = sorted(missing.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+        for page_id, labels in ordered[:8]:
             names = "; ".join(labels[:2]) if isinstance(labels, list) else str(labels)
             print(f"  {page_id}  {names[:60]}")
         if len(missing) > 8:
             print(f"  ... and {len(missing) - 8} more (see kb/graph.md)")
+        print("  Most cited first — those are the ones worth importing next.")
 
     if not (broken or stale or missing):
         print("\nEverything is current.")

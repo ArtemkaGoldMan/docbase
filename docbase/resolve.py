@@ -31,6 +31,11 @@ RE_IDENTIFIER = re.compile(r"\d{2,5}(?:-\d{1,4}){1,3}[a-z]?(?![a-z0-9])")
 #: Years and similar would match everything and mean nothing.
 RE_BARE_YEAR = re.compile(r"^(19|20)\d{2}$")
 
+#: A site-relative link has no host to check against, but is same-site by
+#: definition. Real wiki pages link this way more often than not — more than
+#: half the links on an Apache Confluence page are relative.
+RE_RELATIVE_PAGE = re.compile(r"(?:/pages/(\d+)/|[?&]pageId=(\d+))")
+
 
 def _normalise_url(url):
     parts = urlsplit(unquote(url or ""))
@@ -115,8 +120,9 @@ class Resolver:
         if not url:
             return None
 
-        if pattern is not None:
-            page_id = self.page_id_of(url, pattern)
+        effective = RE_RELATIVE_PAGE if url.startswith("/") else pattern
+        if effective is not None:
+            page_id = self.page_id_of(url, effective)
             if page_id and page_id in self.by_page_id:
                 found = self.by_page_id[page_id]
                 return None if found == exclude else found
