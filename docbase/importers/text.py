@@ -27,6 +27,9 @@ RE_TITLE = re.compile(r"^#\s+(.+)$", re.M)
 #: structure completely: a 49 KB style guide arrived with three headings.
 UNDERLINE_CHARS = "=-`:'\"~^_*+#<>"
 
+#: A fenced code block, whose contents are a sample rather than prose.
+RE_FENCE = re.compile(r"^\s*(?:```|~~~)")
+
 #: A field list at the top of the document, as PEPs and many RST files use.
 RE_FIELD = re.compile(r"^([A-Z][A-Za-z-]{2,20}):\s+(.+)$")
 
@@ -54,11 +57,18 @@ def underlined_headings(text):
     how reStructuredText defines them.
     """
     lines = text.splitlines()
-    order, out, skip = [], [], False
+    order, out, skip, fenced = [], [], False, False
 
     for index, line in enumerate(lines):
         if skip:
             skip = False
+            continue
+        if RE_FENCE.match(line):
+            fenced = not fenced
+            out.append(line)
+            continue
+        if fenced:
+            out.append(line)         # a code sample keeps its own punctuation
             continue
         nxt = lines[index + 1] if index + 1 < len(lines) else ""
         after = lines[index + 2] if index + 2 < len(lines) else ""

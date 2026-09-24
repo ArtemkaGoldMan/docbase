@@ -1884,3 +1884,105 @@ class TestArchiveMemberNames(BaseCase):
         from docbase.sync import flatten_member
         self.assertEqual(flatten_member("../../etc/passwd.md"), "etc-passwd.md")
         self.assertEqual(flatten_member("/absolute/path.md"), "absolute-path.md")
+
+
+class TestDocsAsCode(BaseCase):
+    """A documentation repository refers to itself with relative paths.
+
+    Tested last of the formats it accepts, and the one a technical user is
+    likeliest to have: a docs/ folder, an Obsidian vault, a GitBook or Notion
+    export. Nothing in it was stitched together, because a link that did not
+    start with a scheme or a slash was assumed to already be a local file —
+    while the base is flat, so those paths point at nothing.
+    """
+
+    def _repo(self):
+        self.drop("install.md",
+                  "# Installing the agent\n\n"
+                  "Read the [configuration guide](../reference/configuration.md).\n"
+                  "See also [troubleshooting](./troubleshooting.md) "
+                  "and the [FAQ](faq.md).\n\n"
+                  "```bash\n# this is a shell comment, not a heading\n"
+                  "apt install thing\n```\n")
+        self.drop("configuration.md",
+                  "# Configuration reference\n\nSet the timeout to 30 seconds.\n")
+        self.drop("troubleshooting.md",
+                  "# Troubleshooting\n\nRestart it and try again.\n")
+        self.sync(quiet=True)
+
+    def _text(self, name):
+        return open(os.path.join(self.cfg.layout.path("text"), name),
+                    encoding="utf-8").read()
+
+    def test_a_relative_link_reaches_the_imported_document(self):
+        self._repo()
+        body = self._text("installing-the-agent.md")
+        self.assertIn("](configuration-reference.md)", body)
+        self.assertIn("](troubleshooting.md)", body)
+
+    def test_a_relative_link_to_a_missing_document_is_named_readably(self):
+        self._repo()
+        path = os.path.join(self.cfg.layout.root, "kb", "linkmap.json")
+        missing = json.load(open(path, encoding="utf-8"))["missing"]
+        self.assertIn("faq", missing)
+
+    def test_a_shell_comment_is_not_a_section(self):
+        self._repo()
+        headings = [h for _line, h in Index(self.cfg).build()
+                    .headings("installing-the-agent.md")]
+        self.assertEqual(headings, ["Installing the agent"])
+
+    def test_a_title_is_not_taken_from_a_code_sample(self):
+        self.drop("guide.md", "```\n# not the title\n```\n\n"
+                              "# The real title\n\nProse follows.\n")
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["the-real-title.md"])
+
+    def test_an_underline_inside_a_code_sample_is_not_a_heading(self):
+        from docbase.importers.text import underlined_headings
+        converted = underlined_headings("```\nprint(total)\n=====\n```\n")
+        self.assertNotIn("#", converted)
+
+    def test_an_image_reference_is_left_alone(self):
+        self.drop("page.md", "# Architecture\n\n"
+                             "![the diagram](images/architecture.png)\n")
+        self.sync(quiet=True)
+        self.assertIn("![the diagram](images/architecture.png)",
+                      self._text("architecture.md"))
+
+    def test_a_mail_or_phone_link_is_not_a_document(self):
+        self.drop("page.md", "# Support\n\n"
+                             "Write to [us](mailto:help@example.com) "
+                             "or call [the desk](tel:+123456).\n")
+        self.sync(quiet=True)
+        body = self._text("support.md")
+        self.assertIn("(mailto:help@example.com)", body)
+        self.assertIn("(tel:+123456)", body)
+
+    def test_an_anchor_stays_an_anchor(self):
+        self.drop("page.md", "# Handbook\n\nJump to [details](#details).\n\n"
+                             "## Details\n\nHere.\n")
+        self.sync(quiet=True)
+        self.assertIn("](#details)", self._text("handbook.md"))
+
+    def test_a_relinked_base_is_stable_on_a_second_run(self):
+        """The rewritten link must not be read as a new reference."""
+        self._repo()
+        first = self._text("installing-the-agent.md")
+        self.sync(quiet=True, force=True)
+        self.assertEqual(first, self._text("installing-the-agent.md"))
+
+    def test_code_that_reads_like_a_link_is_left_alone(self):
+        """`[T](Sized)` is a type hint and `[.](?!bat$)` a regular expression.
+
+        Both appear in published reference manuals, and markdown cannot tell
+        either from a link. Six of them reached the list of documents worth
+        importing next, which is the one list that has to stay actionable.
+        """
+        self.drop("typing.md", "# Typing\n\n"
+                               "A bound method on list[T](Sized) returns it.\n"
+                               "The pattern [.](?!bat$) excludes the suffix.\n")
+        self.sync(quiet=True)
+        path = os.path.join(self.cfg.layout.root, "kb", "linkmap.json")
+        self.assertEqual(json.load(open(path, encoding="utf-8"))["missing"], {})
+        self.assertIn("list[T](Sized)", self._text("typing.md"))

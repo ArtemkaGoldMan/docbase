@@ -250,9 +250,11 @@ def document_title(markdown, fallback_name):
     declared = re.search(r'^title:\s*"(.+?)"\s*$', markdown, re.M)
     if declared and declared.group(1).strip():
         return declared.group(1).strip()
-    heading = re.search(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", markdown, re.M)
-    if heading:
-        return heading.group(1)
+    from .search import outside_fences
+    for _number, line in outside_fences(markdown.splitlines()):
+        heading = re.match(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", line)
+        if heading:
+            return heading.group(1)
     return os.path.splitext(fallback_name)[0]
 
 

@@ -32,7 +32,12 @@ RE_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 #: section of the document and does not belong in its outline.
 RE_GENERATED_TAIL = re.compile(r"Links found (on this page|in this document)$")
 
-RE_DOC_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", re.M)
+#: A fenced code block. Its contents are a sample, not prose: a shell comment
+#: opens with the same character a markdown heading does, and a documentation
+#: repository is full of them.
+RE_FENCE = re.compile(r"^\s*(?:```|~~~)")
+
+RE_DOC_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)")
 
 #: Past this many documents the map names them and stops. The sections of
 #: five hundred manuals are sixty thousand tokens — more than the answer they
@@ -51,14 +56,28 @@ def stem(word, length):
     return word[:length] if len(word) > length else word
 
 
+def outside_fences(lines):
+    """-> (line number, line) for every line that is not inside a code fence."""
+    fenced = False
+    for number, raw in enumerate(lines, 1):
+        if RE_FENCE.match(raw):
+            fenced = not fenced
+            continue
+        if not fenced:
+            yield number, raw
+
+
 def title_of(path):
     """The document's own title, or its file name if it declares none."""
     try:
         text = open(path, encoding="utf-8").read()
     except OSError:
         return os.path.basename(path)
-    found = RE_DOC_TITLE.search(text)
-    return clean(found.group(1)) if found else os.path.basename(path)
+    for _number, line in outside_fences(text.splitlines()):
+        found = RE_DOC_TITLE.match(line)
+        if found:
+            return clean(found.group(1))
+    return os.path.basename(path)
 
 
 def clean(line):
@@ -337,7 +356,7 @@ class Index:
             return []
         out = []
         with open(path, encoding="utf-8") as handle:
-            for number, raw in enumerate(handle, 1):
+            for number, raw in outside_fences(handle):
                 match = RE_HEADING.match(raw)
                 if not match or len(match.group(1)) > 4:
                     continue

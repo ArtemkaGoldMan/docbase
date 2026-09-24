@@ -32,7 +32,30 @@ RE_FRONTMATTER = re.compile(r"^---\n(.*?)\n---\n", re.S)
 from . import frontmatter
 from . import resolve as resolve_module
 RE_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", re.M)
-RE_MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
+#: A markdown link, but not an image: `![alt](path)` points at a picture, and
+#: rewriting it as a document reference breaks the picture.
+RE_MD_LINK = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)\s]+)\)")
+
+#: Extensions that name a document rather than being part of its name.
+DOCUMENT_SUFFIXES = (".md", ".markdown", ".rst", ".txt", ".text", ".html",
+                     ".htm", ".pdf", ".doc", ".docx")
+
+def looks_like_a_document(url):
+    """Is this relative target a reference to a document, or code?
+
+    `[T](Sized)` is a generic type followed by a call and `[.](?!bat$)` is a
+    regular expression, and markdown cannot tell either of them from a link.
+    A real relative reference carries a folder or a document's extension; on
+    that rule the type hints and the regex stay prose.
+    """
+    path = url.split("#", 1)[0].split("?", 1)[0]
+    if "/" in path:
+        return True
+    return os.path.splitext(path)[1].lower() in DOCUMENT_SUFFIXES
+
+
+#: mailto:, tel: and the rest. A relative path has no scheme at all.
+RE_SCHEME = re.compile(r"^[a-z][a-z0-9+.\-]*:", re.I)
 PAGE_ID_TAIL = r"/.*?(?:/pages/(\d+)/|[?&]pageId=(\d+))"
 
 
@@ -94,11 +117,15 @@ def missing_key(url, resolver, pattern, is_internal):
         page_id = None
     if page_id:
         return page_id
-    if not (url.startswith("/") or is_internal(url)):
+    relative = not RE_SCHEME.match(url)
+    if not (relative or is_internal(url)):
         return None                       # an ordinary link to the outside
 
     from urllib.parse import unquote, urlsplit
     tail = os.path.basename(urlsplit(unquote(url)).path.rstrip("/"))
+    stem, extension = os.path.splitext(tail)
+    if extension.lower() in DOCUMENT_SUFFIXES:
+        tail = stem                       # faq.md is the FAQ, not "faq md"
     slug = re.sub(r"[^a-z0-9]+", "-", tail.lower()).strip("-")
     if slug and not slug.isdigit():
         return slug[:60]
@@ -111,8 +138,21 @@ def relink(text, self_name, resolver, stats, pattern=None,
     """Rewrite the links inside one document."""
     def repl(m):
         label, url = m.group(1), m.group(2)
-        if not url.startswith(("http://", "https://", "/")):
-            return m.group(0)                       # already a local file
+        if url.startswith("#"):
+            return m.group(0)                       # an anchor within this page
+        if RE_SCHEME.match(url) and not url.lower().startswith(
+                ("http://", "https://")):
+            return m.group(0)                       # mailto:, tel: — not a page
+        if url in resolver.names:
+            return m.group(0)                       # already points into the base
+        if not (url.startswith(("http://", "https://", "/"))
+                or looks_like_a_document(url)):
+            return m.group(0)                       # code that reads like a link
+
+        # Anything left may be relative: ../reference/configuration.md is how
+        # a documentation repository refers to itself, and treating it as
+        # "already local" meant a base built from one was never stitched at
+        # all — the links pointed at paths that do not exist here.
         target = resolver.resolve(url, pattern, exclude=self_name)
         if target:
             anchor = RE_ANCHOR.search(unquote(url))

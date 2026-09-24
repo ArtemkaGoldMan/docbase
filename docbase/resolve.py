@@ -78,6 +78,7 @@ class Resolver:
     def __init__(self, documents):
         """`documents` maps a file name to what is known about it:
         page id, declared url, original file name, title."""
+        self.names = set(documents)
         self.by_page_id = {}
         self.by_url = {}
         self.by_name = {}
