@@ -56,7 +56,7 @@ class Search:
 class Importer:
     #: Hosts treated as internal — links to them can resolve to local files.
     internal_hosts: tuple = ()
-    min_image_bytes: int = 20_000
+    min_image_bytes: int = 8_000
 
 
 @dataclass(frozen=True)
@@ -105,7 +105,7 @@ class Config:
 
 DEFAULT_CONFIG = {
     "language": "en",
-    "importer": {"internal_hosts": [], "min_image_bytes": 20000},
+    "importer": {"internal_hosts": [], "min_image_bytes": 8000},
     "search": {},
     "layout": {},
 }
@@ -152,7 +152,7 @@ def load(root=None):
     imp_raw = _section(raw, "importer")
     imp = Importer(
         internal_hosts=tuple(imp_raw.get("internal_hosts", ())),
-        min_image_bytes=int(imp_raw.get("min_image_bytes", 20_000)),
+        min_image_bytes=int(imp_raw.get("min_image_bytes", 8_000)),
     )
 
     language = raw.get("language", "en")
@@ -177,7 +177,7 @@ def write_default(root, language="en", internal_hosts=()):
     data = dict(DEFAULT_CONFIG)
     data["language"] = language
     data["importer"] = {"internal_hosts": list(internal_hosts),
-                        "min_image_bytes": 20000}
+                        "min_image_bytes": 8000}
     path = os.path.join(root, CONFIG_NAME)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False, indent=2)

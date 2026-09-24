@@ -48,8 +48,15 @@ def convert_document(path, cfg=None):
         return text.build_markdown(path, body, links, doc_id, is_internal), ""
 
     from . import html
-    blocks, links, page_id = html.convert(path)
-    return html.build_markdown(path, blocks, links, page_id, is_internal), ""
+
+    slug = cfg.slug(os.path.splitext(os.path.basename(path))[0])
+    assets_dir = os.path.join(cfg.layout.path("assets"), slug)
+    prefix = os.path.relpath(cfg.layout.path("assets"),
+                             cfg.layout.root).replace(os.sep, "/")
+    blocks, links, page_id = html.convert(
+        path, assets_dir=assets_dir, slug=slug, url_prefix=prefix,
+        min_image_bytes=cfg.importer.min_image_bytes)
+    return html.build_markdown(path, blocks, links, page_id, is_internal), slug
 
 
 #: Import-time dependencies, reported once rather than per file.

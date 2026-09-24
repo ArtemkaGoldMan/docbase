@@ -230,10 +230,17 @@ def body_length(markdown):
     return len(text.strip())
 
 
+#: A picture the importer kept. A page whose subject is a diagram carries one
+#: line of prose and the diagram, and refusing it would throw the diagram away.
+RE_ASSET_MARKER = re.compile(r"!\[[^\]]*\]\([^)]*assets/")
+
+
 def nothing_converted(markdown, source_bytes):
     """-> why this import should be refused, or "" to go ahead."""
     if source_bytes < SUSPICIOUS_SOURCE_BYTES:
         return ""
+    if RE_ASSET_MARKER.search(markdown):
+        return ""                    # it converted: the pictures came out
     if body_length(markdown) >= MINIMUM_BODY_CHARS:
         return ""
     return (f"{source_bytes // 1024} KB in, almost no text out — a login or "

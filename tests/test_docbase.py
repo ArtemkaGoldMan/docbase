@@ -2058,7 +2058,7 @@ class TestExtractedImageNames(BaseCase):
     """
 
     def test_each_format_is_named_after_its_own_bytes(self):
-        from docbase.importers.pdf import image_extension
+        from docbase.importers.images import extension as image_extension
         self.assertEqual(image_extension(b"\x89PNG\r\n\x1a\n rest"), ".png")
         self.assertEqual(image_extension(b"\xff\xd8\xff\xe0 rest"), ".jpg")
         self.assertEqual(image_extension(b"\x00\x00\x00\x0cjP  \r\n"), ".jp2")
@@ -2068,5 +2068,100 @@ class TestExtractedImageNames(BaseCase):
         self.assertEqual(image_extension(b"RIFF\x00\x00\x00\x00WEBP"), ".webp")
 
     def test_bytes_nothing_recognises_are_not_a_figure(self):
-        from docbase.importers.pdf import image_extension
+        from docbase.importers.images import extension as image_extension
         self.assertEqual(image_extension(b"\x01\x02\x03\x04 whatever"), "")
+
+
+class TestPicturesThatTravelWithThePage(BaseCase):
+    """A wiki's "Export to Word" is one file holding the page and its pictures.
+
+    Only the text/html part was ever read, so a page whose subject is a
+    diagram imported as prose about a diagram nobody has — while the PDF
+    importer had been keeping figures all along.
+    """
+
+    #: A real PNG, of noise so that it does not compress away: the importer
+    #: drops anything small enough to be an icon.
+    @staticmethod
+    def _png(width=200, height=150):
+        import os as _os, struct, zlib
+        raw = b"".join(b"\x00" + _os.urandom(width * 3) for _ in range(height))
+        def chunk(tag, body):
+            return (struct.pack(">I", len(body)) + tag + body
+                    + struct.pack(">I", zlib.crc32(tag + body)))
+        return (b"\x89PNG\r\n\x1a\n"
+                + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw))
+                + chunk(b"IEND", b""))
+
+    def _export(self, name, picture):
+        import base64
+        body = (
+            "MIME-Version: 1.0\n"
+            'Content-Type: multipart/related; boundary="----=_Part_1"\n\n'
+            "------=_Part_1\n"
+            "Content-Type: text/html; charset=UTF-8\n"
+            "Content-Location: file:///C:/exported.html\n\n"
+            "<html><body><div id='main-content'>"
+            "<h1>Kafka mirroring</h1>"
+            "<p>The diagram below shows the tool.</p>"
+            '<img alt="mirroring overview" src="diagram.png">'
+            "</div></body></html>\n"
+            "------=_Part_1\n"
+            "Content-Type: application/octet-stream\n"
+            "Content-Transfer-Encoding: base64\n"
+            "Content-Location: file:///C:/diagram.png\n\n"
+            + base64.encodebytes(picture).decode() +
+            "\n------=_Part_1--\n")
+        self.drop(name, body)
+
+    def test_the_picture_is_kept(self):
+        self._export("page.doc", self._png())
+        self.sync(quiet=True)
+        assets = self.cfg.layout.path("assets")
+        found = [f for _r, _d, files in os.walk(assets) for f in files]
+        self.assertEqual(found, ["attachment-1.png"])
+
+    def test_the_text_says_where_the_picture_is(self):
+        self._export("page.doc", self._png())
+        self.sync(quiet=True)
+        body = open(os.path.join(self.cfg.layout.path("text"),
+                                 self.text_files()[0]), encoding="utf-8").read()
+        self.assertIn("![mirroring overview](kb/assets/", body)
+        self.assertIn("attachment-1.png)", body)
+
+    def test_a_page_without_pictures_writes_no_asset_folder(self):
+        self.drop("plain.html", page(1, "Plain", "No pictures here."))
+        self.sync(quiet=True)
+        assets = self.cfg.layout.path("assets")
+        self.assertFalse(any(files for _r, _d, files in os.walk(assets)))
+
+
+class TestFurnitureIsNotAFigure(BaseCase):
+    """A table of contents renders its leader lines as images.
+
+    1901 pixels wide and 42 tall, well past any size threshold, and a picture
+    of nothing. Raising the threshold to exclude them threw out a real wiki
+    diagram of 16 KB instead, so the test is the shape.
+    """
+
+    def test_a_leader_line_is_not_a_figure(self):
+        from docbase.importers import images
+        self.assertFalse(images.is_a_figure(
+            TestPicturesThatTravelWithThePage._png(1901, 42)))
+
+    def test_a_diagram_is(self):
+        from docbase.importers import images
+        self.assertTrue(images.is_a_figure(
+            TestPicturesThatTravelWithThePage._png(433, 183)))
+
+    def test_the_shape_is_read_from_the_header(self):
+        from docbase.importers import images
+        self.assertEqual(
+            images.shape(TestPicturesThatTravelWithThePage._png(120, 80)),
+            (120, 80))
+
+    def test_bytes_that_do_not_say_their_shape_are_judged_by_size(self):
+        from docbase.importers import images
+        self.assertIsNone(images.shape(b"\x00\x00\x00\x0cjP  \r\n\x87\n"))
+        self.assertTrue(images.is_a_figure(b"\x00\x00\x00\x0cjP  \r\n\x87\n"))

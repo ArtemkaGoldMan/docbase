@@ -15,12 +15,13 @@ import email
 import os
 import re
 import sys
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 from bs4 import BeautifulSoup
 from bs4.element import PreformattedString
 
 from .. import frontmatter
+from . import images
 
 RE_CONFLUENCE_PAGE = re.compile(r"(?:/pages/(\d+)/|[?&]pageId=(\d+))")
 
@@ -35,21 +36,75 @@ CONTENT_SELECTORS = ["#main-content", ".wiki-content", "#content", "main", "body
 
 
 def load_html(path):
-    """A Word export is MHTML; pull the text/html part out of it."""
+    """-> (the page, {name: bytes} for anything travelling with it).
+
+    A Word export is MHTML: the page and its pictures arrive in one file, and
+    reading only the text/html part threw the pictures away. A wiki page whose
+    subject is a diagram then imported as prose about a diagram nobody has.
+    """
     raw = open(path, "rb").read()
     head = raw[:2048].lstrip().lower()
     if path.lower().endswith((".doc", ".mhtml", ".mht")) or head.startswith(b"mime-version"):
         msg = email.message_from_bytes(raw)
+        page, attached = "", {}
         for part in msg.walk():
-            if part.get_content_type() == "text/html":
+            if part.get_content_maintype() == "multipart":
+                continue
+            payload = part.get_payload(decode=True)
+            if not payload:
+                continue
+            if not page and part.get_content_type() == "text/html":
                 charset = part.get_content_charset() or "utf-8"
-                return part.get_payload(decode=True).decode(charset, "replace")
+                page = payload.decode(charset, "replace")
+                continue
+            location = part.get("Content-Location") or part.get("Content-ID") or ""
+            key = _attachment_key(location)
+            if key:
+                attached[key] = payload
+        if page:
+            return page, attached
     for enc in ("utf-8", "cp1251", "latin-1"):
         try:
-            return raw.decode(enc)
+            return raw.decode(enc), {}
         except UnicodeDecodeError:
             continue
-    return raw.decode("utf-8", "replace")
+    return raw.decode("utf-8", "replace"), {}
+
+
+def _attachment_key(reference):
+    """What an `img src` and a part's location have in common: the file name."""
+    tail = urlsplit(unquote((reference or "").strip().strip("<>"))).path
+    return os.path.basename(tail.rstrip("/"))
+
+
+def save_attachments(soup, attached, out_dir, slug, url_prefix, min_bytes):
+    """Pictures that came with the page -> files, and markers in their place.
+
+    The same bargain the PDF importer strikes: the file is kept, and the text
+    carries a marker saying where it is, so an agent can decide whether the
+    picture is worth opening rather than never learning it existed.
+    """
+    if not attached or out_dir is None:
+        return 0
+    written, kept = {}, 0
+    for tag in soup.find_all("img"):
+        key = _attachment_key(tag.get("src", ""))
+        data = attached.get(key)
+        if not data or len(data) < min_bytes or not images.is_a_figure(data):
+            continue
+        if key not in written:
+            extension = images.extension(data)
+            if not extension:
+                continue                  # bytes nothing can open
+            kept += 1
+            name = f"attachment-{kept}{extension}"
+            os.makedirs(out_dir, exist_ok=True)
+            with open(os.path.join(out_dir, name), "wb") as handle:
+                handle.write(data)
+            written[key] = f"{url_prefix}/{slug}/{name}"
+        alt = (tag.get("alt") or "").strip()
+        tag.replace_with(f"![{alt or 'image from this page'}]({written[key]})")
+    return len(written)
 
 
 def inline_child(child):
@@ -163,8 +218,12 @@ def walk(node, blocks, depth=0):
         # Everything else is deliberately ignored.
 
 
-def convert(path):
-    soup = BeautifulSoup(load_html(path), "html.parser")
+def convert(path, assets_dir=None, slug="", url_prefix="kb/assets",
+            min_image_bytes=0):
+    page, attached = load_html(path)
+    soup = BeautifulSoup(page, "html.parser")
+    save_attachments(soup, attached, assets_dir, slug, url_prefix,
+                     min_image_bytes)
 
     for selector in JUNK_SELECTORS:
         for node in soup.select(selector):
