@@ -15,6 +15,34 @@ from .. import config as config_module
 TEXT_EXTENSIONS = (".md", ".markdown", ".txt", ".rst", ".text")
 
 
+def _shipped_with(cfg):
+    """-> a lookup from a page's `img src` to the bytes an export shipped.
+
+    A space export keeps its pictures as files beside the pages, so the page
+    points at a path inside the archive rather than carrying the picture. The
+    unpacker keeps those files under the same flattened name a document gets,
+    which is what makes the two ends meet.
+    """
+    from ..sync import flatten_member
+
+    folder = cfg.layout.path("attachments")
+    if not os.path.isdir(folder):
+        return None
+    available = set(os.listdir(folder))
+
+    def find(source):
+        from urllib.parse import unquote, urlsplit
+
+        path = unquote(urlsplit(source or "").path).lstrip("/")
+        for candidate in (flatten_member(path), os.path.basename(path)):
+            if candidate and candidate in available:
+                with open(os.path.join(folder, candidate), "rb") as handle:
+                    return handle.read()
+        return None
+
+    return find
+
+
 def convert_document(path, cfg=None):
     """Exported file -> (markdown, asset slug).
 
@@ -55,7 +83,8 @@ def convert_document(path, cfg=None):
                              cfg.layout.root).replace(os.sep, "/")
     blocks, links, page_id = html.convert(
         path, assets_dir=assets_dir, slug=slug, url_prefix=prefix,
-        min_image_bytes=cfg.importer.min_image_bytes)
+        min_image_bytes=cfg.importer.min_image_bytes,
+        shipped=_shipped_with(cfg))
     return html.build_markdown(path, blocks, links, page_id, is_internal), slug
 
 

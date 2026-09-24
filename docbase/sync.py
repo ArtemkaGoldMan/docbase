@@ -154,6 +154,35 @@ def collect_dropped(cfg, log):
                    else f"{duplicates[0]} is already in the base; removed the copy")
 
 
+#: What an export ships beside its pages. A wiki writes them into
+#: download/attachments/<page id>/, and a page whose subject is a screenshot
+#: is nothing without them.
+ATTACHMENT_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+                         ".tif", ".tiff", ".jp2", ".svg")
+
+
+def _keep_attachments(cfg, archive, members, prefix):
+    """Pictures in the archive -> kb/attachments, keyed by their path.
+
+    Kept under the same flattened name a document would get, so a page that
+    says src="download/attachments/27846330/mirror_maker.jpg" can be matched
+    to the file that arrived with it.
+    """
+    folder = cfg.layout.path("attachments")
+    kept = 0
+    for member in members:
+        if not member.lower().endswith(ATTACHMENT_EXTENSIONS):
+            continue
+        flat = flatten_member(member, prefix)
+        if not flat:
+            continue
+        os.makedirs(folder, exist_ok=True)
+        with archive.open(member) as src, open(os.path.join(folder, flat), "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        kept += 1
+    return kept
+
+
 def _common_folder(members):
     """The single top folder an export wraps itself in, if there is one."""
     tops = {m.split("/", 1)[0] for m in members if "/" in m}
@@ -187,13 +216,14 @@ def unpack_archives(cfg, log):
                 if n.lower().endswith(ARCHIVE_EXTENSIONS)]
     for name in archives:
         path = os.path.join(layout.root, name)
-        taken = 0
+        taken, attached = 0, 0
         try:
             with zipfile.ZipFile(path) as archive:
-                members = [m for m in archive.namelist()
-                           if not m.endswith("/")
-                           and m.lower().endswith(DOC_EXTENSIONS)]
-                prefix = _common_folder(members)
+                every = [m for m in archive.namelist() if not m.endswith("/")]
+                prefix = _common_folder(every)
+                members = [m for m in every
+                           if m.lower().endswith(DOC_EXTENSIONS)]
+                attached = _keep_attachments(cfg, archive, every, prefix)
                 for member in members:
                     flat = flatten_member(member, prefix)
                     if not flat:
@@ -211,8 +241,11 @@ def unpack_archives(cfg, log):
             log.append(f"could not open {name}: {str(error)[:60]}")
             continue
         os.remove(path)
-        log.append(f"unpacked {name}: {taken} documents"
-                   if taken else f"{name} held nothing importable")
+        if taken:
+            log.append(f"unpacked {name}: {taken} documents"
+                       + (f" and {attached} attachments" if attached else ""))
+        else:
+            log.append(f"{name} held nothing importable")
 
 
 def _summarise(entries, what):

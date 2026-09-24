@@ -77,19 +77,25 @@ def _attachment_key(reference):
     return os.path.basename(tail.rstrip("/"))
 
 
-def save_attachments(soup, attached, out_dir, slug, url_prefix, min_bytes):
+def save_attachments(soup, attached, out_dir, slug, url_prefix, min_bytes,
+                     shipped=None):
     """Pictures that came with the page -> files, and markers in their place.
 
     The same bargain the PDF importer strikes: the file is kept, and the text
     carries a marker saying where it is, so an agent can decide whether the
     picture is worth opening rather than never learning it existed.
     """
-    if not attached or out_dir is None:
+    if out_dir is None or not (attached or shipped):
         return 0
     written, kept = {}, 0
     for tag in soup.find_all("img"):
-        key = _attachment_key(tag.get("src", ""))
+        source = tag.get("src", "")
+        key = _attachment_key(source)
         data = attached.get(key)
+        if data is None and shipped:
+            # An export ships its pictures as files beside the pages rather
+            # than inside them, so the page points at a path in the archive.
+            data = shipped(source)
         if not data or len(data) < min_bytes or not images.is_a_figure(data):
             continue
         if key not in written:
@@ -219,11 +225,11 @@ def walk(node, blocks, depth=0):
 
 
 def convert(path, assets_dir=None, slug="", url_prefix="kb/assets",
-            min_image_bytes=0):
+            min_image_bytes=0, shipped=None):
     page, attached = load_html(path)
     soup = BeautifulSoup(page, "html.parser")
     save_attachments(soup, attached, assets_dir, slug, url_prefix,
-                     min_image_bytes)
+                     min_image_bytes, shipped)
 
     for selector in JUNK_SELECTORS:
         for node in soup.select(selector):
@@ -265,7 +271,14 @@ def convert(path, assets_dir=None, slug="", url_prefix="kb/assets",
     if not title:
         tag = soup.find("title")
         title = tag.get_text().strip() if tag else os.path.basename(path)
-    if not any(b.startswith("# ") for b in blocks[:5]):
+    # The page's own title, unless the content already opens with it. Asking
+    # only whether *some* heading comes first let a section stand in for the
+    # title: an exported page opened "How to set up a mirror" and that is what
+    # the document ended up called.
+    def bare(text):
+        return re.sub(r"\s+", " ", text.lstrip("# ")).strip().lower()
+
+    if bare(title) not in [bare(b) for b in blocks[:3]]:
         blocks.insert(0, f"# {title}")
 
     # Collapse runs of blank blocks.

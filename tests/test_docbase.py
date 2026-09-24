@@ -2165,3 +2165,57 @@ class TestFurnitureIsNotAFigure(BaseCase):
         from docbase.importers import images
         self.assertIsNone(images.shape(b"\x00\x00\x00\x0cjP  \r\n\x87\n"))
         self.assertTrue(images.is_a_figure(b"\x00\x00\x00\x0cjP  \r\n\x87\n"))
+
+
+class TestSpaceExport(BaseCase):
+    """A wiki exports a space as pages plus the files they point at.
+
+    The pages go in as documents and the attachments went nowhere: not a
+    document extension, so the unpacker skipped them, and every screenshot in
+    an exported handbook was lost without a word. The page kept pointing at a
+    path that does not exist in the base.
+    """
+
+    def _export(self, name="space.zip"):
+        import zipfile
+        picture = TestPicturesThatTravelWithThePage._png()
+        page = ('<html><head><meta name="ajs-page-title" content="Kafka mirroring">'
+                "<title>Kafka mirroring - Apache Kafka</title></head><body>"
+                '<div id="main-content">'
+                "<p>The following diagram shows the tool.</p>"
+                '<img alt="the topology" '
+                'src="download/attachments/27846330/mirror_maker.png">'
+                "<h1>How to set up a mirror</h1>"
+                "<p>Start the processes after bringing up the cluster.</p>"
+                "</div></body></html>")
+        with zipfile.ZipFile(os.path.join(self.root, name), "w") as archive:
+            archive.writestr("KAFKA/Kafka+mirroring_27846330.html", page)
+            archive.writestr(
+                "KAFKA/download/attachments/27846330/mirror_maker.png", picture)
+            archive.writestr("KAFKA/styles/site.css", "body{}")
+
+    def test_the_attachment_becomes_an_asset(self):
+        self._export()
+        self.sync(quiet=True)
+        found = [f for _r, _d, files in os.walk(self.cfg.layout.path("assets"))
+                 for f in files]
+        self.assertEqual(found, ["attachment-1.png"])
+
+    def test_the_page_points_at_the_asset(self):
+        self._export()
+        self.sync(quiet=True)
+        body = open(os.path.join(self.cfg.layout.path("text"),
+                                 self.text_files()[0]), encoding="utf-8").read()
+        self.assertIn("![the topology](kb/assets/", body)
+        self.assertNotIn("download/attachments", body)
+
+    def test_a_stylesheet_is_not_a_document(self):
+        self._export()
+        report = self.sync(quiet=True)
+        self.assertEqual(report["documents"], 1)
+
+    def test_the_page_keeps_its_own_title_not_its_first_section(self):
+        """An exported page opens with prose, and its title is in the head."""
+        self._export()
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["kafka-mirroring.md"])

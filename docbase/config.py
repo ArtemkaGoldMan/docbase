@@ -28,6 +28,7 @@ class Layout:
     assets: str = "kb/assets"         # extracted images (generated)
     cards: str = "kb/cards"           # agent-written summaries
     history: str = "kb/history"       # previous versions and diffs
+    attachments: str = "kb/attachments"   # files an export shipped beside its pages
     manifest: str = "kb/.manifest.json"
 
     def path(self, which):
