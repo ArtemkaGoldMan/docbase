@@ -34,7 +34,7 @@ faster than it earns anything.
 | `python -m docbase status` | stale, changed, missing |
 | `python -m docbase eval` | retrieval quality |
 | `python -m docbase verify` | extracts still match their source |
-| `python -m docbase doctor` | environment check |
+| `python -m docbase doctor` | environment and generated skills |
 | `python -m docbase serve` | MCP server on stdio, for other agents |
 
 ## When `find` says LOW CONFIDENCE

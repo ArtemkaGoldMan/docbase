@@ -155,6 +155,14 @@ def cmd_doctor(args, cfg):
         path = cfg.layout.path(which)
         count = len(os.listdir(path)) if os.path.isdir(path) else 0
         print(f"  {which:<10}{count} entries")
+
+    from . import skills as skills_module
+    count, problems = skills_module.report(cfg.layout.root)
+    if count or problems:
+        print(f"  skills    {count} written for this base")
+    for name, complaint in problems:
+        print(f"            ! {name}: {complaint}")
+        ok = False
     return 0 if ok else 1
 
 

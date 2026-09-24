@@ -91,6 +91,7 @@ Write it so `verify` can check it:
 python -m docbase eval --generate
 python -m docbase eval
 python -m docbase verify
+python -m docbase doctor
 ```
 
 `verify` checks every number and quotation in the cards you wrote against the
@@ -98,7 +99,13 @@ document they came from. A card that drifts from its source is the one failure
 mode this whole design exists to prevent, so treat a finding there as a bug in
 the card, not as noise.
 
-It confirms that a claim is *somewhere* in the document, not that you quoted
-the right occurrence of it. A long document that mentions "24 hours" about
+`doctor` checks the skills you wrote for the faults that stop one loading
+without saying so: frontmatter it cannot read, a name that has drifted from
+its folder, a missing description, a `kb/` path that is not there. A skill
+that never loads leaves the base looking tailored and behaving exactly as it
+did before, so treat a finding there the same way.
+
+`verify` confirms that a claim is *somewhere* in the document, not that you
+quoted the right occurrence of it. A long document that mentions "24 hours" about
 something else will confirm a card that says 24 hours about this. Reading the
 section is still the only way to be sure.

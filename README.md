@@ -122,7 +122,7 @@ that PDF flattens away. Markdown passes through untouched.
 | `docbase eval` | measure retrieval quality on your own corpus |
 | `docbase verify` | check extracts still match their source |
 | `docbase serve` | expose the base to any MCP-capable agent |
-| `docbase doctor` | check the environment |
+| `docbase doctor` | check the environment and the generated skills |
 
 ## For AI agents
 

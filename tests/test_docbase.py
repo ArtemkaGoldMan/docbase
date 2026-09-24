@@ -14,6 +14,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -2219,3 +2220,66 @@ class TestSpaceExport(BaseCase):
         self._export()
         self.sync(quiet=True)
         self.assertEqual(self.text_files(), ["kafka-mirroring.md"])
+
+
+class TestGeneratedSkills(BaseCase):
+    """docs-tailor writes skills, and nothing ever looked at them again.
+
+    That is the worst place for a silent failure: a skill with broken
+    frontmatter does not announce itself, it never loads, and the base looks
+    tailored while behaving exactly as it did before.
+    """
+
+    GOOD = ("---\nname: raise-a-proposal\n"
+            "description: Walk someone through raising a proposal. Use when "
+            "they ask what a proposal must contain.\n---\n\n"
+            "# Raise a proposal\n\nRead `kb/cards/proposals/` first.\n")
+
+    def _skill(self, folder, body):
+        path = os.path.join(self.root, ".claude", "skills", folder)
+        os.makedirs(path, exist_ok=True)
+        with open(os.path.join(path, "SKILL.md"), "w", encoding="utf-8") as h:
+            h.write(body)
+
+    def _card(self):
+        os.makedirs(os.path.join(self.cfg.layout.path("cards"), "proposals"),
+                    exist_ok=True)
+
+    def _problems(self):
+        from docbase import skills
+        return skills.report(self.root)[1]
+
+    def test_a_sound_skill_is_not_complained_about(self):
+        self._card()
+        self._skill("raise-a-proposal", self.GOOD)
+        self.assertEqual(self._problems(), [])
+
+    def test_broken_frontmatter_is_caught(self):
+        self._skill("raise-a-proposal", self.GOOD.replace("---\nname:", "--\nname:", 1))
+        self.assertIn("never load", self._problems()[0][1])
+
+    def test_a_missing_description_is_caught(self):
+        self._card()
+        self._skill("raise-a-proposal",
+                    re.sub(r"description:.*\n", "", self.GOOD))
+        self.assertIn("trigger", self._problems()[0][1])
+
+    def test_a_name_that_drifted_from_its_folder_is_caught(self):
+        self._card()
+        self._skill("raise-a-proposal",
+                    self.GOOD.replace("name: raise-a-proposal",
+                                      "name: propose-a-change"))
+        self.assertIn("folder", self._problems()[0][1])
+
+    def test_a_path_that_is_no_longer_there_is_caught(self):
+        self._skill("raise-a-proposal", self.GOOD)     # the card is not created
+        self.assertIn("kb/cards/proposals/", self._problems()[0][1])
+
+    def test_a_body_that_loads_on_every_trigger_is_kept_short(self):
+        self._card()
+        self._skill("raise-a-proposal", self.GOOD + "\nfiller\n" * 200)
+        self.assertIn("under 150", self._problems()[0][1])
+
+    def test_a_base_without_skills_reports_nothing(self):
+        from docbase import skills
+        self.assertEqual(skills.report(self.root), (0, []))
