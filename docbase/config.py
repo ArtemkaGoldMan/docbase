@@ -49,6 +49,10 @@ class Search:
     per_hit_chars: int = 620
     total_chars: int = 6000
     low_confidence: float = 0.9
+    #: Below this a match is doubted even when fragments near it agree. In a
+    #: base of a few long documents they nearly always come from the same one,
+    #: and agreement among weak matches is no evidence.
+    always_doubt_below: float = 0.8
     #: When the best document leads the next one by less than this factor,
     #: the question does not tell them apart.
     close_race: float = 1.15

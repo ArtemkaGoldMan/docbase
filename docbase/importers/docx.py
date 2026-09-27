@@ -180,7 +180,7 @@ def convert(path):
             marker = "1." if formats.get(num_id) else "-"
             blocks.append(f"{indent}{marker} {text}")
         else:
-            blocks.append(text)
+            blocks.append(frontmatter.structural_heading(text) or text)
 
     title = next((b.lstrip("# ").strip() for b in blocks if b.startswith("# ")), "")
     if not title:

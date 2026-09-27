@@ -370,7 +370,11 @@ class Index:
           of broad documents no title names most questions, and a perfect
           match under "Expense reports" is no reason for doubt. The other
           title is not named as the answer; it is often there by accident;
-        * the match is weak and nothing near it agrees;
+        * the match is weak and nothing near it agrees — or very weak, agreeing
+          or not. On eight Ukrainian laws, five fragments of one long law
+          "agreed" on answers scoring 0.3; doubting those took the right
+          article from 16 to 20 of 32 through the loop, and changed nothing on
+          the English set;
         * another document is almost as likely. Wrong answers were nearly all
           of this kind: "install" found "Installing Binaries with cargo
           install", one place above "Installation".
@@ -387,7 +391,10 @@ class Index:
             reasons.append(f"the best match is in {top[1]}, whose title shares "
                            f"no word with the question, though other titles do")
         agree = sum(1 for hit in hits[:5] if hit[1] == top[1])
-        if top[0] < settings.low_confidence and agree < 2:
+        if top[0] < settings.always_doubt_below:
+            reasons.append(f"the best match covers little of the question "
+                           f"(score {top[0]:.2f})")
+        elif top[0] < settings.low_confidence and agree < 2:
             reasons.append(f"the best match covers little of the question "
                            f"(score {top[0]:.2f}) and nothing near it agrees")
         second = next((hit for hit in hits if hit[1] != top[1]), None)

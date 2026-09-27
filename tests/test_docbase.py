@@ -2624,3 +2624,121 @@ class TestDoubtingAnAnswer(BaseCase):
             cli.main(["--root", self.root, "find", "crash", "the",
                       "program", "on", "purpose"])
         self.assertIn("never uses: crash, purpose", out.getvalue())
+
+
+class TestNumberedStructure(BaseCase):
+    """A law, a contract or a policy numbers its parts in the text itself.
+
+    Published as plain paragraphs — "Стаття 8. Права споживача..." made bold
+    by a stylesheet the importer never sees — a 260 KB law arrived as one
+    section: 36 articles invisible to the map and to the search that weighs
+    headings. On eight Ukrainian laws, recognising them took the right article
+    first from 4 to 8 of 32, and through the ask-again loop from 15 to 20.
+    """
+
+    def test_an_article_is_a_heading(self):
+        from docbase.frontmatter import structural_heading as h
+        self.assertEqual(h("Стаття 8. Права споживача у разі придбання товару"),
+                         "### Стаття 8. Права споживача у разі придбання товару")
+        self.assertEqual(h("Article 5 Obligations of the processor")[:4], "### ")
+        self.assertEqual(h("§ 3 Anwendungsbereich")[:4], "### ")
+
+    def test_a_chapter_is_a_level_above(self):
+        from docbase.frontmatter import structural_heading as h
+        self.assertEqual(h("Розділ I ЗАГАЛЬНІ ПОЛОЖЕННЯ")[:3], "## ")
+        self.assertEqual(h("РОЗДІЛ II ПРАВА СПОЖИВАЧІВ")[:3], "## ")
+        self.assertEqual(h("Chapter IV")[:3], "## ")
+
+    def test_a_bold_label_is_still_a_label(self):
+        from docbase.frontmatter import structural_heading as h
+        self.assertEqual(h("**Стаття 1.** Визначення термінів"),
+                         "### Стаття 1. Визначення термінів")
+
+    def test_a_sentence_that_opens_with_a_reference_is_not_a_heading(self):
+        from docbase.frontmatter import structural_heading as h
+        self.assertEqual(h("Section 3 of the contract applies to all loans issued "
+                           "before the change took effect."), "")
+        self.assertEqual(h("Стаття 5 цього Закону застосовується до всіх "
+                           "договорів, укладених до набрання ним чинності."), "")
+
+    def test_a_word_that_merely_starts_like_a_numeral_is_not_one(self):
+        """"Part did not arrive" is not Part DID."""
+        from docbase.frontmatter import structural_heading as h
+        self.assertEqual(h("Part did not arrive in time"), "")
+        self.assertEqual(h("Chapter mix of topics"), "")
+
+    def test_a_list_item_or_a_long_paragraph_is_left_alone(self):
+        from docbase.frontmatter import structural_heading as h
+        self.assertEqual(h("- Article 5 applies"), "")
+        self.assertEqual(h("Article 5 " + "word " * 40), "")
+
+    def _law(self):
+        return ('<html><head><meta property="og:title" content="Про захист прав '
+                'споживачів"><title>Про захист прав споживачів | від 12.05.1991 '
+                '№ 1023-XII (Текст для друку)</title></head><body>'
+                '<p class=rvps7><span class=rvts15>Розділ I </span><br>'
+                '<span class=rvts15>ЗАГАЛЬНІ ПОЛОЖЕННЯ</span></p>'
+                '<p class=rvps2><span class=rvts9>Стаття 1.</span> Визначення термінів</p>'
+                '<p>У цьому Законі терміни вживаються в такому значенні.</p>'
+                '<p class=rvps2><span class=rvts9>Стаття 8.</span> Права споживача '
+                'у разі придбання ним товару неналежної якості</p>'
+                '<p>Споживач має право вимагати заміни товару.</p></body></html>')
+
+    def test_a_law_published_as_paragraphs_gets_its_articles(self):
+        self.drop("law.html", self._law())
+        self.sync(quiet=True)
+        name = self.text_files()[0]
+        headings = [h for _l, h in Index(self.cfg).build().headings(name)]
+        self.assertIn("Стаття 8. Права споживача у разі придбання ним товару "
+                      "неналежної якості", headings)
+        self.assertIn("Розділ I ЗАГАЛЬНІ ПОЛОЖЕННЯ", headings)
+
+    def test_the_open_graph_title_names_the_document(self):
+        """The <title> carries the date, the number and "(print version)",
+        and the site cuts long ones short with an ellipsis."""
+        self.drop("law.html", self._law())
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["pro-zakhyst-prav-spozhyvachiv.md"])
+
+    def test_a_browser_tab_title_loses_its_site_name(self):
+        self.drop("page.html", "<html><head><title>Refund policy | Example "
+                  "Store</title></head><body><p>Refunds take 14 days to "
+                  "reach the card.</p></body></html>")
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["refund-policy.md"])
+
+    def test_a_word_document_gets_its_articles_too(self):
+        import zipfile
+        body = "".join(
+            f'<w:p><w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+            for text in ("Договір про надання послуг", "Стаття 1. Предмет договору",
+                         "Виконавець надає послуги.", "Стаття 2. Ціна договору",
+                         "Ціна становить 100 гривень."))
+        path = os.path.join(self.root, "contract.docx")
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("word/document.xml",
+                             '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+                             'wordprocessingml/2006/main"><w:body>' + body +
+                             "</w:body></w:document>")
+        self.sync(quiet=True)
+        text = open(os.path.join(self.cfg.layout.path("text"), self.text_files()[0]),
+                    encoding="utf-8").read()
+        self.assertIn("### Стаття 2. Ціна договору", text)
+
+
+class TestVeryWeakMatchesAreDoubted(BaseCase):
+    """In a base of a few long documents, the fragments near a weak match
+    nearly all come from the same one, and "agree". Agreement among weak
+    matches is no evidence."""
+
+    def test_a_very_weak_match_is_doubted_even_when_neighbours_agree(self):
+        self.drop("law.md", "# Consumer credit\n\n" + "".join(
+            f"## Article {n}\n\nThe lender records clause {n} in the register "
+            f"and keeps it for audit.\n\n" for n in range(1, 12)))
+        self.drop("other.md", "# Deposits\n\nDeposits are guaranteed up to a limit.\n")
+        self.sync(quiet=True)
+        index = Index(self.cfg).build()
+        query = "can my neighbour audit the register of my loan clauses today"
+        hits = index.search(query)
+        self.assertLess(hits[0][0], self.cfg.search.always_doubt_below)
+        self.assertTrue(any("covers little" in r for r in index.doubts(query, hits)))

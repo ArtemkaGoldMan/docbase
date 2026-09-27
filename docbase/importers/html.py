@@ -201,7 +201,7 @@ def walk(node, blocks, depth=0):
         if name is None:
             text = re.sub(r"\s+", " ", str(child)).strip()
             if text:
-                blocks.append(text)
+                blocks.append(frontmatter.structural_heading(text) or text)
         elif name in ("h1", "h2", "h3", "h4", "h5", "h6"):
             level = min(int(name[1]), 4)
             text = inline(child).strip()
@@ -210,7 +210,7 @@ def walk(node, blocks, depth=0):
         elif name == "p":
             text = inline(child).strip()
             if text:
-                blocks.append(text)
+                blocks.append(frontmatter.structural_heading(text) or text)
         elif name == "table":
             blocks.extend(table_to_md(child))
             blocks.append("")
@@ -265,12 +265,22 @@ def convert(path, assets_dir=None, slug="", url_prefix="kb/assets",
     if meta_title and meta_title.get("content", "").strip():
         title = meta_title["content"].strip()
     if not title:
+        # Open Graph: nearly every public site publishes the bare title here,
+        # while its <title> carries the date, the number and "(print version)",
+        # cut short with an ellipsis when it runs long.
+        og = soup.find("meta", attrs={"property": "og:title"})
+        if og and og.get("content", "").strip():
+            title = og["content"].strip()
+    if not title:
         heading = soup.select_one("#title-text")
         if heading:
             title = heading.get_text(" ", strip=True)
     if not title:
         tag = soup.find("title")
         title = tag.get_text().strip() if tag else os.path.basename(path)
+        # "Page | Site" is how a browser tab is titled; the page is the part
+        # before the bar.
+        title = title.split(" | ")[0].strip() or title
     # The page's own title, unless the content already opens with it. Asking
     # only whether *some* heading comes first let a section stand in for the
     # title: an exported page opened "How to set up a mirror" and that is what

@@ -57,3 +57,43 @@ def block(source_name, source_id, url="", extracted="", extra=None):
         lines.append(f'{key}: "{value}"')
     lines += ["---", ""]
     return lines
+
+
+# ------------------------------------------------------------------ structure
+_STRUCTURE = None
+
+
+def structural_heading(text):
+    """-> the markdown heading this paragraph is, or "" if it is not one.
+
+    "Стаття 8. Права споживача у разі придбання товару" and "Розділ I
+    ЗАГАЛЬНІ ПОЛОЖЕННЯ" are headings that a stylesheet made look like
+    headings; the importer only sees a paragraph. A numbered part at the start
+    of a short paragraph that does not read as a sentence is one.
+    """
+    global _STRUCTURE
+    if _STRUCTURE is None:
+        from .languages import structure_levels
+        words = structure_levels()
+        alternatives = "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True))
+        # The word in any case — "РОЗДІЛ" as often as "Розділ" — but a Roman
+        # numeral only in capitals: "Part did not arrive" is not Part DID.
+        _STRUCTURE = (words, re.compile(
+            r"^(?i:(%s))\s*(\d+(?:[-–.]\d+)*|[IVXLCDM]+)\b\.?\s*(.*)$"
+            % alternatives))
+    words, pattern = _STRUCTURE
+    plain = text.strip()
+    if (not plain or len(plain) > 160 or plain[0] in "#|>`"
+            or plain.startswith(("- ", "* ", "+ "))):
+        return ""                    # already a heading, a table, a list item
+    # "**Стаття 1.** Визначення термінів": the label is often bold.
+    plain = plain.replace("**", "").replace("__", "").strip()
+    match = pattern.match(plain)
+    if not match:
+        return ""
+    rest = match.group(3).strip()
+    if rest.endswith((".", ";", ":", ",")) and len(rest) > 40:
+        return ""                    # a sentence that begins with a reference
+    level = words.get(match.group(1).lower(), 3)
+    return "#" * level + " " + plain
+

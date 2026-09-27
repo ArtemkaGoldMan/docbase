@@ -138,6 +138,35 @@ def stem_length(codes):
     return lengths.pop() if len(lengths) == 1 else DEFAULT_STEM_LENGTH
 
 
+#: Words a regulation, contract or policy numbers its parts with, and the
+#: heading level each opens. A law published as plain paragraphs — "Стаття 8.
+#: Права споживача..." styled bold by a stylesheet the importer never sees —
+#: arrived as one section of 260 KB: 36 articles invisible to the map, and to
+#: the search that weighs headings. All languages at once, because the pattern
+#: is unambiguous where it is used: a numbered part at the start of a short
+#: paragraph.
+STRUCTURE_WORDS = {
+    "de": {"teil": 2, "kapitel": 2, "abschnitt": 2, "artikel": 3, "§": 3},
+    "en": {"part": 2, "chapter": 2, "article": 3, "section": 3},
+    "es": {"título": 2, "capítulo": 2, "artículo": 3},
+    "fr": {"titre": 2, "chapitre": 2, "article": 3},
+    "it": {"titolo": 2, "capo": 2, "articolo": 3},
+    "nl": {"hoofdstuk": 2, "afdeling": 2, "artikel": 3},
+    "pl": {"dział": 2, "rozdział": 2, "artykuł": 3, "art.": 3},
+    "pt": {"título": 2, "capítulo": 2, "artigo": 3},
+    "uk": {"розділ": 2, "глава": 2, "підрозділ": 3, "стаття": 3},
+}
+
+
+def structure_levels():
+    """-> {word: heading level} across every built-in language."""
+    out = {}
+    for words in STRUCTURE_WORDS.values():
+        for word, level in words.items():
+            out.setdefault(word, level)
+    return out
+
+
 def numbers(codes):
     """-> {spelled-out word: the digits it stands for} for these languages."""
     out = {}
