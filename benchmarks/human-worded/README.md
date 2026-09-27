@@ -21,9 +21,9 @@ the person instead of answering.
 |---|---|---|---|
 | first search alone | 29 of 64 | — | — |
 | loop, doubting on score alone (before) | 43 | 21 | 0 |
-| loop, doubting on score, title and a close race (now) | 56 | 2 | 6 |
+| loop, doubting on score, title and a close race (now) | 57 | 2 | 5 |
 
-In all six cases where it stopped to ask, the right document was among the
+In all five cases where it stopped to ask, the right document was among the
 options it named.
 
 Two limits worth knowing. The questions and the rephrasings were written by

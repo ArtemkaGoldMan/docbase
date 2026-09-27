@@ -2536,10 +2536,43 @@ class TestDoubtingAnAnswer(BaseCase):
         index = self._base()
         self.assertEqual(self._doubts(index, "store a list of values in a vector"), [])
 
-    def test_a_title_sharing_nothing_with_the_question_is_doubted(self):
-        index = self._base()
-        reasons = self._doubts(index, "program exits with a message")
+    def test_a_match_under_an_unrelated_title_is_a_doubt(self):
+        """"check automatically that my code works" landed in "Unsafe Rust"
+        while "Writing Automated Tests" existed."""
+        self.drop("unsafe.md", "# Unsafe Rust\n\n" + "When writing unsafe "
+                  "code, check that your code works and is correct. " * 4 + "\n")
+        self.drop("tests.md", "# Writing automated tests\n\nA test is a function.\n")
+        self.sync(quiet=True)
+        index = Index(self.cfg).build()
+        query = "check automatically that my code works"
+        hits = index.search(query)
+        self.assertEqual(hits[0][1], "unsafe-rust.md")
+        reasons = index.doubts(query, hits)
         self.assertTrue(any("title shares no word" in r for r in reasons), reasons)
+
+    def test_the_other_title_is_not_named_as_the_answer(self):
+        """It is often there by accident — "the-slice-type" for any question
+        with "type" in it — and naming it would send the next search there."""
+        self.drop("unsafe.md", "# Unsafe Rust\n\n" + "When writing unsafe "
+                  "code, check that your code works and is correct. " * 4 + "\n")
+        self.drop("tests.md", "# Writing automated tests\n\nA test is a function.\n")
+        self.sync(quiet=True)
+        index = Index(self.cfg).build()
+        query = "check automatically that my code works"
+        reasons = index.doubts(query, index.search(query))
+        self.assertFalse(any("writing-automated-tests" in r for r in reasons), reasons)
+
+    def test_no_title_naming_the_subject_is_no_reason_for_doubt(self):
+        """A small base of broad documents: the answer lives under a title
+        that names none of the questions asked of it, and that is fine."""
+        self.drop("expenses.md", "# Expense reports\n\nEvery reimbursement "
+                  "request goes through the finance portal. Receipts must be "
+                  "attached as PDF; photographs of receipts are rejected.\n")
+        self.drop("travel.md", "# Travel booking\n\nBook through the desk.\n\n"
+                  "## Cancellation\n\nCancelling after booking costs 150 EUR.\n")
+        self.sync(quiet=True)
+        index = Index(self.cfg).build()
+        self.assertEqual(self._doubts(index, "photographs of receipts"), [])
 
     def test_a_close_race_names_the_other_document(self):
         """Wrong answers were nearly all of this kind."""

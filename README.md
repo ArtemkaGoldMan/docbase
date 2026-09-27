@@ -30,21 +30,23 @@ Base: 2 documents
 
 $ docbase find "photographs of receipts"
 
-=== expense-reports.md:9  [1.07]  Expense reports
+=== expense-reports.md:8  [1.07]  Expense reports
 Every reimbursement request goes through the finance portal. Receipts must be
 attached as **PDF**; photographs of receipts are rejected.
 ```
 
-And when the answer genuinely isn't there, it says so instead of improvising:
+And when the answer isn't there, it says so instead of improvising — and says
+which words to change before concluding it:
 
 ```console
 $ docbase find "parental leave entitlement"
-LOW CONFIDENCE: nothing matched at all.
+LOW CONFIDENCE — nothing in the base matched the question.
+Words the documentation never uses: parental, leave, entitlement
 
 ## expense-reports.md — Expense reports
-      8  Expense reports
-     10  Deadlines
-     18  Currency
+      6  Expense reports
+     11  Deadlines
+     16  Currency
 ```
 
 ## Why this exists
@@ -103,9 +105,9 @@ docbase find "how late can I submit a claim"
 | `.md` `.markdown` `.txt` `.rst` | already text; underlined headings and a declared title are picked up |
 | `.html` `.htm` | best for table-heavy pages: a row stays a row |
 | `.docx` | Word; headings from styles, nested and numbered lists, tables, links |
-| `.doc` `.mhtml` | wiki "Export to Word" (MHTML inside); keeps macro tabs |
-| `.pdf` | works everywhere; links and reading order are recovered |
-| `.zip` | a space export — unpacked and imported in one step |
+| `.doc` `.mhtml` | wiki "Export to Word" (MHTML inside); keeps macro tabs and the pictures inside it |
+| `.pdf` | works everywhere; links, reading order and figures are recovered |
+| `.zip` | a space export — pages and their attachments, imported in one step |
 
 PDF is universal but lossy by nature. HTML and Word keep tables and macro tabs
 that PDF flattens away. Markdown passes through untouched.
@@ -141,8 +143,8 @@ handbook wants *"what to ask the customer"*. A runbook wants *"pre-flight
 checks"*. A compliance manual wants *"what must be recorded"*. The skills a
 domain needs are generated from the domain, not guessed in advance.
 
-`.claude/settings.json` runs `docbase sync --quiet` before each turn: ~0.1 s,
-and silent when nothing changed.
+`.claude/settings.json` runs `docbase sync --quiet` before each turn: about
+40 ms when nothing changed, and silent.
 
 ### Any other agent
 
@@ -280,33 +282,57 @@ Fragments are scored by IDF-weighted coverage of the query, so words that occur
 in every document stop drowning out the ones that pick out a topic. Headings
 count double; a short focused fragment beats a long diffuse one.
 
-The score reads as a confidence, measured against the best that query could
-score — so the threshold means the same thing on a corpus of five documents and
-one of five hundred. Below it, `find` says so and prints a section map instead
-of pretending, which is what lets an agent take a second, better-worded look
-rather than answering from the wrong fragment.
+### When to doubt an answer
 
-Measure it on your own corpus — not on someone else's benchmark:
+A lexical search misses when the question and the documentation use different
+words — someone asks how to make a program "crash on purpose", the manual says
+"panic". That cannot be fixed by ranking; it is fixed by asking again in the
+documentation's words. What the search owes the agent is knowing *when* to.
+
+`find` marks an answer LOW CONFIDENCE for three reasons, and says which:
+
+- the best match sits in a document whose title shares no word with the
+  question, while other titles do;
+- the match is weak and nothing near it agrees;
+- another document is almost as likely — "install" landing on *Installing
+  Binaries with cargo install*, one place above *Installation*.
+
+With the doubt comes what a second search needs: the words of the question the
+documentation never uses, and what it calls the nearby topics. The
+`docs-search` skill spells out the rest — ask again in those words at most
+twice, read a section two searches agree on, and otherwise ask the person which
+topic they meant, or say the base does not cover it.
+
+### How well it works
+
+Measured on 64 questions worded the way people ask, against two public manuals
+— the Rust book and the Python library documentation. Reproduce it with
+[`benchmarks/human-worded/`](benchmarks/human-worded/).
+
+| | right | wrong | stopped to ask |
+|---|---|---|---|
+| first search alone | 29 of 64 | — | — |
+| with the ask-again loop, doubting on score alone (before) | 43 | 21 | 0 |
+| with the ask-again loop, as it is now | **57** | **2** | 5 |
+
+The first search alone is right less than half the time. The loop is what
+makes it work, and it only works because the doubt fires on the answers that
+are wrong: in every case where it stopped to ask, the right document was among
+the options it named.
+
+### `docbase eval`
 
 ```bash
 docbase eval --generate   # build cases from the corpus itself
 docbase eval
 ```
 
-```console
-Cases: 40
-  top-1              40/40 (100%)
-  top-3              40/40 (100%)
-  in returned 8      40/40 (100%)   <- what the agent actually sees
-  right document #1  40/40 (100%)   <- guards against confident wrong answers
-  search time        5 ms average
-  context returned   ~794 tokens per query
-```
-
-Cases live in `kb/eval.json` as `{question, marker, file}`. Generated ones are a
-floor: they prove a passage is retrievable *given good keywords*. Rewrite the
-questions into natural phrasing — by hand, or have an agent do it — and the same
-runner scores those.
+Generated cases take their questions from the documents' own words, so they
+score close to 100% on almost any base. That makes them a regression check —
+a passage that was findable is still findable after you change something — and
+not a measure of how well the search understands people. For that, write
+questions the way your users ask them into `kb/eval.json` as
+`{question, marker, file}`; the same runner scores those.
 
 ## Images
 
@@ -372,7 +398,7 @@ kb/graph.md     what exists, what is referenced but missing
 python -m unittest discover tests
 ```
 
-A hundred and six regression tests. Every one of them is a failure that actually
+Over two hundred regression tests. Every one of them is a failure that actually
 happened, most of them silent: a document overwritten by another with a similar
 title, one broken file aborting the whole import, an asset folder deleted along
 with hand-written notes, a half-written manifest from two concurrent runs.
@@ -383,37 +409,46 @@ from cache. Each was invisible at ten documents and crippling at two hundred.
 Three more guard the evaluation itself, which once produced zero cases on
 long-sentence documents and reported success.
 
-### Measured on 200 documents · 1.2 MB of markdown · 3600 fragments
+### Measured on two public manuals
 
-| | |
-|---|---|
-| first import | 1.1 s |
-| idle run (the pre-turn hook) | 0.14 s |
-| index build, cold | 165 ms |
-| index load, cached | 14 ms |
-| search | 5 ms |
-| memory | 43 MB |
+The same bases the search benchmark uses, so these can be reproduced.
 
-The index is cached on disk because every CLI call is a new process; without it,
-each search re-parsed the entire corpus.
+| | Rust book | Python library docs |
+|---|---|---|
+| documents · text · fragments | 112 · 1.2 MB · 3 900 | 538 · 14.7 MB · 44 300 |
+| first import | 0.4 s | 5.1 s |
+| idle run (the pre-turn hook) | 37 ms | 44 ms |
+| index build, cold | 0.24 s | 3.2 s |
+| index load, cached | 16 ms | 0.40 s |
+| search, average · worst | 7 ms · 11 ms | 60 ms · 263 ms |
+| one `docbase find`, whole process | 60 ms | 0.41 s |
+| memory | 39 MB | 265 MB |
+
+A base of a few hundred wiki pages sits near the left column. The right column
+is where the design starts to show its limits; see below.
 
 ## Limits
 
 Stated plainly, because knowing where a tool stops is part of using it.
 
-- **Retrieval is lexical.** A vocabulary mismatch — *"wake me up"* against
-  *"alarm service"* — needs a second search. The low-confidence path exists
-  precisely for this.
-- **Stemming is a fixed-length prefix.** Crude; works well for inflected
-  languages, and occasionally conflates unrelated words. There is no
-  lemmatiser, so no language gets true morphological analysis.
+- **Retrieval is lexical.** A vocabulary mismatch — *"crash on purpose"*
+  against *"panic"* — needs a second search. On questions worded the way people
+  ask, the first search is right less than half the time; the ask-again loop
+  brings that to 57 of 64. An agent that answers from the first result without
+  reading the doubt will be wrong often.
+- **Stemming is a fixed-length prefix** — six letters for English, five for
+  every other language. Crude, and it occasionally conflates unrelated words.
+  Only English was measured; the others keep five because an inflected
+  language agrees on fewer letters, not because anyone checked.
 - **Column detection is tuned for wiki exports.** Other page layouts may need
   different `MIN_GUTTER` / `MIN_ROW_GAP` thresholds. Heading detection is not:
   it measures against each document's own body text.
 - **Hidden macro tabs are absent from PDF.** Only the active tab renders. Use an
   HTML or Word export when that content matters.
-- **Search is a linear scan.** 5 ms at 200 documents, ~50 ms at 2000. Beyond
-  that it wants an inverted index.
+- **It does not scale past a few hundred documents gracefully.** Each command
+  is a new process that loads the whole index: at 538 documents that is 0.4 s
+  and 265 MB for a single search. It wants an inverted index and a leaner cache
+  format before it holds thousands.
 
 ## License
 

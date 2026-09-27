@@ -361,10 +361,15 @@ class Index:
         on 64 questions worded the way people ask rather than the way a manual
         does, and run through the whole loop — search, and ask again in the
         documentation's words when in doubt — the answers that ended up wrong
-        went from 21 to 2, with as many right as before. Three signals:
+        went from 21 to 2, and the right ones from 43 to 57. Three signals:
 
-        * the document the best match sits in has a title that shares no word
-          with the question;
+        * the best match sits in a document whose title shares no word with
+          the question, while other titles do — "how do I check automatically
+          that my code works" landing in "Unsafe Rust" while "Writing
+          Automated Tests" exists. Only when some title does: in a small base
+          of broad documents no title names most questions, and a perfect
+          match under "Expense reports" is no reason for doubt. The other
+          title is not named as the answer; it is often there by accident;
         * the match is weak and nothing near it agrees;
         * another document is almost as likely. Wrong answers were nearly all
           of this kind: "install" found "Installing Binaries with cargo
@@ -376,9 +381,11 @@ class Index:
         wanted = self.stems(query)
         top = hits[0]
         reasons = []
-        if not wanted & self.titles.get(top[1], set()):
+        if not wanted & self.titles.get(top[1], set()) and any(
+                wanted & title for name, title in self.titles.items()
+                if name != top[1]):
             reasons.append(f"the best match is in {top[1]}, whose title shares "
-                           f"no word with the question")
+                           f"no word with the question, though other titles do")
         agree = sum(1 for hit in hits[:5] if hit[1] == top[1])
         if top[0] < settings.low_confidence and agree < 2:
             reasons.append(f"the best match covers little of the question "
