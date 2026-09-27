@@ -1,0 +1,414 @@
+{
+ "rust-book": [
+  [
+   "how do I make my program stop immediately when something goes badly wrong",
+   [
+    "unrecoverable-errors-with-panic",
+    "to-panic-or-not-to-panic"
+   ]
+  ],
+  [
+   "what should I do when opening a file might fail",
+   [
+    "recoverable-errors-with-result"
+   ]
+  ],
+  [
+   "how do I keep a list of things that can grow",
+   [
+    "storing-lists-of-values-with-vectors"
+   ]
+  ],
+  [
+   "how do I look up a value by a key like a dictionary",
+   [
+    "storing-keys-with-associated-values-in-hash-maps"
+   ]
+  ],
+  [
+   "why can't I use a variable after I passed it to a function",
+   [
+    "what-is-ownership"
+   ]
+  ],
+  [
+   "can two parts of the code look at the same data without copying it",
+   [
+    "references-and-borrowing"
+   ]
+  ],
+  [
+   "how can several owners share one value",
+   [
+    "rc-t-the-reference-counted-smart-pointer"
+   ]
+  ],
+  [
+   "how to change something that is supposed to be read only",
+   [
+    "refcell-t-and-the-interior-mutability-pattern"
+   ]
+  ],
+  [
+   "how do I run code at the same time on several cores",
+   [
+    "using-threads-to-run-code-simultaneously"
+   ]
+  ],
+  [
+   "how do threads send data to each other",
+   [
+    "transfer-data-between-threads-with-message-passi"
+   ]
+  ],
+  [
+   "how do I check automatically that my code works",
+   [
+    "how-to-write-tests",
+    "writing-automated-tests"
+   ]
+  ],
+  [
+   "how do I split a big project into several files",
+   [
+    "separating-modules-into-different-files"
+   ]
+  ],
+  [
+   "how do I install rust on my computer",
+   [
+    "installation"
+   ]
+  ],
+  [
+   "how do I write one function that works for many types",
+   [
+    "generic-data-types"
+   ]
+  ],
+  [
+   "what is a closure and how do I pass one to a function",
+   [
+    "closures"
+   ]
+  ],
+  [
+   "how do I go over every item in a collection one by one",
+   [
+    "processing-a-series-of-items-with-iterators"
+   ]
+  ],
+  [
+   "how do I print my own type for debugging",
+   [
+    "an-example-program-using-structs",
+    "appendix-c-derivable-traits"
+   ]
+  ],
+  [
+   "how do I read the arguments given on the command line",
+   [
+    "accepting-command-line-arguments"
+   ]
+  ],
+  [
+   "my program leaks memory because two objects point at each other",
+   [
+    "reference-cycles-can-leak-memory"
+   ]
+  ],
+  [
+   "how do I write code that writes code",
+   [
+    "macros"
+   ]
+  ],
+  [
+   "how do I make a text string and add to it",
+   [
+    "storing-utf-8-encoded-text-with-strings"
+   ]
+  ],
+  [
+   "how do I handle a value that might be missing",
+   [
+    "defining-an-enum"
+   ]
+  ],
+  [
+   "how do I pick between several cases depending on a value",
+   [
+    "the-match-control-flow-construct"
+   ]
+  ],
+  [
+   "how do I share data between threads safely with a lock",
+   [
+    "shared-state-concurrency"
+   ]
+  ],
+  [
+   "how do I put a big value on the heap",
+   [
+    "using-box-t-to-point-to-data-on-the-heap"
+   ]
+  ],
+  [
+   "how do I tell the compiler a reference lives long enough",
+   [
+    "validating-references-with-lifetimes"
+   ]
+  ],
+  [
+   "how do I define behaviour that several types can share",
+   [
+    "defining-shared-behavior-with-traits"
+   ]
+  ],
+  [
+   "how do I publish my library so others can use it",
+   [
+    "publishing-a-crate-to-crates-io"
+   ]
+  ],
+  [
+   "how can I wait for something without blocking the whole program",
+   [
+    "fundamentals-of-asynchronous-programming-async-a",
+    "applying-concurrency-with-async"
+   ]
+  ],
+  [
+   "how do I switch off the compiler's safety checks",
+   [
+    "unsafe-rust"
+   ]
+  ],
+  [
+   "how do I print errors separately from normal output",
+   [
+    "redirecting-errors-to-standard-error"
+   ]
+  ],
+  [
+   "how do I make a variable that can be changed",
+   [
+    "variables-and-mutability"
+   ]
+  ]
+ ],
+ "python-docs": [
+  [
+   "how do I read and write json",
+   [
+    "json-json-encoder-and-decoder"
+   ]
+  ],
+  [
+   "how do I add a few days to a date",
+   [
+    "datetime-basic-date-and-time-types",
+    "datetime-objects"
+   ]
+  ],
+  [
+   "how do I run another program from my script and get what it prints",
+   [
+    "subprocess-subprocess-management",
+    "subprocesses"
+   ]
+  ],
+  [
+   "how do I write messages to a log file",
+   [
+    "logging-howto",
+    "logging-logging-facility-for-python",
+    "logging-cookbook",
+    "logging-handlers-logging-handlers"
+   ]
+  ],
+  [
+   "how do I find all files ending in .txt in a folder",
+   [
+    "glob-unix-style-pathname-pattern-expansion",
+    "fnmatch-unix-filename-pattern-matching",
+    "pathlib-object-oriented-filesystem-paths"
+   ]
+  ],
+  [
+   "how do I copy or move a whole folder",
+   [
+    "shutil-high-level-file-operations"
+   ]
+  ],
+  [
+   "how do I make a temporary file that gets deleted afterwards",
+   [
+    "tempfile-generate-temporary-files-and-directorie"
+   ]
+  ],
+  [
+   "how do I generate a random password",
+   [
+    "secrets-generate-secure-random-numbers-for-manag",
+    "random-generate-pseudo-random-numbers"
+   ]
+  ],
+  [
+   "how do I save a python object to disk and load it back later",
+   [
+    "pickle-python-object-serialization",
+    "shelve-python-object-persistence"
+   ]
+  ],
+  [
+   "how do I handle options passed on the command line",
+   [
+    "argparse-parser-for-command-line-options-argumen",
+    "argparse-tutorial",
+    "getopt-c-style-parser-for-command-line-options"
+   ]
+  ],
+  [
+   "how do I keep data in a small database file",
+   [
+    "sqlite3-db-api-2-0-interface-for-sqlite-database"
+   ]
+  ],
+  [
+   "how do I count how many times each item appears",
+   [
+    "collections-container-datatypes"
+   ]
+  ],
+  [
+   "how do I run things in parallel on several cpus",
+   [
+    "multiprocessing-process-based-parallelism",
+    "concurrent-futures-launching-parallel-tasks"
+   ]
+  ],
+  [
+   "how do I measure how long a piece of code takes",
+   [
+    "timeit-measure-execution-time-of-small-code-snip",
+    "time-time-access-and-conversions"
+   ]
+  ],
+  [
+   "how do I test my functions automatically",
+   [
+    "unittest-unit-testing-framework"
+   ]
+  ],
+  [
+   "how do I keep a project's packages separate from other projects",
+   [
+    "venv-creation-of-virtual-environments"
+   ]
+  ],
+  [
+   "how do I pack files into a zip",
+   [
+    "zipfile-work-with-zip-archives",
+    "shutil-high-level-file-operations"
+   ]
+  ],
+  [
+   "how do I send an email from my program",
+   [
+    "smtplib-smtp-protocol-client",
+    "email-examples"
+   ]
+  ],
+  [
+   "how do I find and replace text using patterns",
+   [
+    "re-regular-expression-operations",
+    "regular-expression-howto"
+   ]
+  ],
+  [
+   "how do I read a spreadsheet saved as comma separated values",
+   [
+    "csv-csv-file-reading-and-writing"
+   ]
+  ],
+  [
+   "how do I get the sha256 checksum of a file",
+   [
+    "hashlib-secure-hashes-and-message-digests"
+   ]
+  ],
+  [
+   "how do I download a web page",
+   [
+    "urllib-request-extensible-library-for-opening-ur",
+    "http-client-http-protocol-client"
+   ]
+  ],
+  [
+   "how do I make a simple class that only holds some data",
+   [
+    "dataclasses-data-classes"
+   ]
+  ],
+  [
+   "how do I pause my program and look at the variables while it runs",
+   [
+    "pdb-the-python-debugger"
+   ]
+  ],
+  [
+   "what time is it right now in another country",
+   [
+    "zoneinfo-iana-time-zone-support",
+    "datetime-basic-date-and-time-types",
+    "datetime-objects"
+   ]
+  ],
+  [
+   "how do I print a nested dictionary so it is readable",
+   [
+    "pprint-data-pretty-printer"
+   ]
+  ],
+  [
+   "how do I read a settings file with sections",
+   [
+    "configparser-configuration-file-parser",
+    "tomllib-parse-toml-files"
+   ]
+  ],
+  [
+   "how do I ask for a password without it showing on screen",
+   [
+    "getpass-portable-password-input"
+   ]
+  ],
+  [
+   "how do I make a unique identifier",
+   [
+    "uuid-uuid-objects-according-to-rfc-9562"
+   ]
+  ],
+  [
+   "how do I do exact money calculations without rounding errors",
+   [
+    "decimal-decimal-fixed-point-and-floating-point-a"
+   ]
+  ],
+  [
+   "how do I say what types my function expects",
+   [
+    "typing-support-for-type-hints"
+   ]
+  ],
+  [
+   "how do I get every combination of items from a list",
+   [
+    "itertools-functions-creating-iterators-for-effic"
+   ]
+  ]
+ ]
+}

@@ -1,0 +1,206 @@
+{
+ "can two parts of the code look at the same data without copying it": [
+  "references and borrowing",
+  "borrow reference without taking ownership"
+ ],
+ "how can I wait for something without blocking the whole program": [
+  "async await futures",
+  "asynchronous programming non-blocking"
+ ],
+ "how can several owners share one value": [
+  "Rc reference counted multiple ownership",
+  "reference counting smart pointer"
+ ],
+ "how do I ask for a password without it showing on screen": [
+  "getpass prompt password without echoing",
+  "getpass"
+ ],
+ "how do I check automatically that my code works": [
+  "writing automated tests test functions",
+  "how to write tests assert"
+ ],
+ "how do I copy or move a whole folder": [
+  "shutil copytree move directory",
+  "copy directory tree"
+ ],
+ "how do I count how many times each item appears": [
+  "Counter count occurrences",
+  "collections Counter"
+ ],
+ "how do I do exact money calculations without rounding errors": [
+  "decimal fixed point arithmetic",
+  "Decimal module precision"
+ ],
+ "how do I download a web page": [
+  "urllib request urlopen",
+  "open URL fetch HTTP"
+ ],
+ "how do I find all files ending in .txt in a folder": [
+  "glob pattern matching files",
+  "pathlib glob"
+ ],
+ "how do I find and replace text using patterns": [
+  "regular expression sub replace",
+  "re sub"
+ ],
+ "how do I get every combination of items from a list": [
+  "itertools combinations permutations",
+  "itertools combinations"
+ ],
+ "how do I get the sha256 checksum of a file": [
+  "hashlib sha256 digest",
+  "secure hash message digest"
+ ],
+ "how do I go over every item in a collection one by one": [
+  "iterate over collection for loop",
+  "iterator next"
+ ],
+ "how do I handle a value that might be missing": [
+  "Option enum Some None",
+  "Option type absence of a value"
+ ],
+ "how do I install rust on my computer": [
+  "installing rustup",
+  "rustup installation"
+ ],
+ "how do I keep a list of things that can grow": [
+  "vector store list of values",
+  "Vec push growable"
+ ],
+ "how do I keep a project's packages separate from other projects": [
+  "virtual environment venv",
+  "creating virtual environments"
+ ],
+ "how do I keep data in a small database file": [
+  "sqlite3 database",
+  "SQLite connect cursor"
+ ],
+ "how do I look up a value by a key like a dictionary": [
+  "hash map keys associated values",
+  "HashMap insert get value"
+ ],
+ "how do I make a simple class that only holds some data": [
+  "dataclass data classes",
+  "dataclasses fields decorator"
+ ],
+ "how do I make a text string and add to it": [
+  "String push_str append",
+  "updating a string"
+ ],
+ "how do I make a unique identifier": [
+  "uuid generate",
+  "UUID objects uuid4"
+ ],
+ "how do I make my program stop immediately when something goes badly wrong": [
+  "panic unrecoverable error",
+  "panic macro abort program"
+ ],
+ "how do I pack files into a zip": [
+  "zipfile write archive",
+  "ZipFile create zip archive"
+ ],
+ "how do I pause my program and look at the variables while it runs": [
+  "debugger pdb breakpoint",
+  "python debugger set_trace"
+ ],
+ "how do I pick between several cases depending on a value": [
+  "match control flow construct",
+  "match arms patterns"
+ ],
+ "how do I print a nested dictionary so it is readable": [
+  "pretty print pprint",
+  "pprint data pretty printer"
+ ],
+ "how do I print errors separately from normal output": [
+  "print to standard error eprintln",
+  "standard error stderr"
+ ],
+ "how do I print my own type for debugging": [
+  "derive Debug print struct",
+  "Debug trait println"
+ ],
+ "how do I put a big value on the heap": [
+  "Box store data on the heap",
+  "Box heap allocation"
+ ],
+ "how do I read a settings file with sections": [
+  "configuration file parser configparser",
+  "ini file sections configparser"
+ ],
+ "how do I read a spreadsheet saved as comma separated values": [
+  "csv reader read file",
+  "csv module reading"
+ ],
+ "how do I read and write json": [
+  "json encoder decoder",
+  "json dumps loads"
+ ],
+ "how do I run another program from my script and get what it prints": [
+  "subprocess run capture output",
+  "subprocess module spawn process"
+ ],
+ "how do I run code at the same time on several cores": [
+  "threads run code simultaneously",
+  "spawn thread"
+ ],
+ "how do I run things in parallel on several cpus": [
+  "multiprocessing process-based parallelism",
+  "process pool parallel"
+ ],
+ "how do I save a python object to disk and load it back later": [
+  "pickle serialize object",
+  "pickle dump load"
+ ],
+ "how do I say what types my function expects": [
+  "type hints typing annotations",
+  "typing module type annotations"
+ ],
+ "how do I send an email from my program": [
+  "smtplib send mail SMTP",
+  "SMTP client sendmail"
+ ],
+ "how do I split a big project into several files": [
+  "modules separate files",
+  "mod.rs module files"
+ ],
+ "how do I switch off the compiler's safety checks": [
+  "unsafe Rust superpowers",
+  "unsafe block raw pointer"
+ ],
+ "how do I tell the compiler a reference lives long enough": [
+  "lifetime annotations references",
+  "lifetimes validating references"
+ ],
+ "how do I test my functions automatically": [
+  "unittest unit testing framework",
+  "unit test TestCase"
+ ],
+ "how do I write code that writes code": [
+  "macros generating code",
+  "declarative macros metaprogramming"
+ ],
+ "how do I write messages to a log file": [
+  "logging to a file FileHandler",
+  "logging basicConfig filename"
+ ],
+ "how do I write one function that works for many types": [
+  "generic data types functions",
+  "generics type parameter function"
+ ],
+ "how to change something that is supposed to be read only": [
+  "interior mutability RefCell",
+  "mutate value behind immutable reference"
+ ],
+ "my program leaks memory because two objects point at each other": [
+  "reference cycles leak memory",
+  "Weak reference cycle"
+ ],
+ "what time is it right now in another country": [
+  "time zone zoneinfo",
+  "datetime timezone conversion"
+ ],
+ "why can't I use a variable after I passed it to a function": [
+  "ownership move value into function",
+  "moved value ownership rules"
+ ]
+}
