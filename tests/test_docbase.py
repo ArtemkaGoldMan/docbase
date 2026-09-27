@@ -2379,3 +2379,89 @@ class TestRunOnText(BaseCase):
         body = ("The class MessageDefectRegistryEntry_v2 extends "
                 "AbstractMultipartContentHandler_base. ") * 60
         self.assertLessEqual(run_on_share("# API\n\n" + body), RUN_ON_SHARE)
+
+
+class TestTheHookIsCheap(BaseCase):
+    """The hook syncs on every message, and a sync that finds nothing new
+    should cost next to nothing.
+
+    It cost 175 ms on a five-document base and 309 on five hundred: 128 of
+    them importing three libraries only to prove they were installed, and the
+    rest re-linking every document to write back exactly what was there.
+    """
+
+    def _two(self):
+        self.drop("a.md", "# Alpha\n\nSee [beta](b.md) for the rest.\n")
+        self.drop("b.md", "# Beta\n\nThe rest, and [gamma](gamma.md).\n")
+        return self.sync(quiet=True)
+
+    def test_a_quiet_sync_with_nothing_new_skips_linking(self):
+        from docbase import link
+        self._two()
+        calls = []
+        original = link.run
+        link.run = lambda *a, **k: calls.append(1) or original(*a, **k)
+        try:
+            report = self.sync(quiet=True)
+        finally:
+            link.run = original
+        self.assertEqual(calls, [])
+        self.assertEqual(report["documents"], 2)
+
+    def test_what_it_reports_is_what_linking_would_have_said(self):
+        first = self._two()
+        again = self.sync(quiet=True)
+        self.assertEqual(again["link"]["linked"], first["link"]["linked"])
+        self.assertEqual(set(again["link"]["missing"]),
+                         set(first["link"]["missing"]))
+
+    def test_a_new_document_is_still_linked(self):
+        self._two()
+        self.drop("gamma.md", "# Gamma\n\nThe end.\n")
+        self.sync(quiet=True)
+        body = open(os.path.join(self.cfg.layout.path("text"), "beta.md"),
+                    encoding="utf-8").read()
+        self.assertIn("](gamma.md)", body)
+        path = os.path.join(self.cfg.layout.root, "kb", "linkmap.json")
+        self.assertEqual(json.load(open(path, encoding="utf-8"))["missing"], {})
+
+    def test_a_document_edited_by_hand_is_noticed(self):
+        from docbase import link
+        self._two()
+        path = os.path.join(self.cfg.layout.path("text"), "alpha.md")
+        future = os.path.getmtime(path) + 5
+        os.utime(path, (future, future))
+        self.assertIsNone(link.unchanged_since_last_run(
+            self.cfg.layout.path("text"),
+            os.path.join(self.cfg.layout.root, "kb", "linkmap.json"),
+            self.cfg.importer.internal_hosts))
+
+    def test_changing_which_hosts_are_internal_relinks(self):
+        from docbase import link
+        self._two()
+        self.assertIsNone(link.unchanged_since_last_run(
+            self.cfg.layout.path("text"),
+            os.path.join(self.cfg.layout.root, "kb", "linkmap.json"),
+            ["another.example.com"]))
+
+    def test_checking_for_the_libraries_does_not_load_them(self):
+        import subprocess
+        probe = ("import sys; sys.path.insert(0, %r); "
+                 "from docbase.importers import missing_dependencies; "
+                 "missing_dependencies(); "
+                 "print(sorted(m for m in ('pypdf', 'pdfplumber', 'bs4') "
+                 "if m in sys.modules))"
+                 % os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        out = subprocess.run([sys.executable, "-c", probe],
+                             capture_output=True, text=True).stdout.strip()
+        self.assertEqual(out, "[]")
+
+    def test_the_map_links_to_documents_that_exist(self):
+        """graph.md pointed every entry at kb/sources/, a folder long gone."""
+        self._two()
+        graph = open(os.path.join(self.cfg.layout.root, "kb", "graph.md"),
+                     encoding="utf-8").read()
+        for target in re.findall(r"\]\(([^)]+\.md)\)", graph):
+            self.assertTrue(os.path.isfile(
+                os.path.join(self.cfg.layout.root, "kb", target)), target)
+

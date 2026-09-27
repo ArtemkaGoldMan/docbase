@@ -93,11 +93,13 @@ REQUIREMENTS = {"pypdf": "pypdf", "pdfplumber": "pdfplumber", "bs4": "beautifuls
 
 
 def missing_dependencies():
-    """Package names that need installing, in pip's spelling."""
-    missing = []
-    for module, package in REQUIREMENTS.items():
-        try:
-            __import__(module)
-        except ImportError:
-            missing.append(package)
-    return missing
+    """Package names that need installing, in pip's spelling.
+
+    Located, not imported. The hook asks this on every message, and importing
+    the three libraries to prove they exist cost 128 ms each time — on turns
+    where nothing needed converting and none of them were used.
+    """
+    from importlib.util import find_spec
+
+    return [package for module, package in REQUIREMENTS.items()
+            if find_spec(module) is None]

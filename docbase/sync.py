@@ -604,11 +604,18 @@ def run(cfg=None, quiet=False, force=False):
     mark_stale_cards(cfg, rebuilt, log)
     write_manifest(manifest_path, manifest)
 
-    registry, stats = link_module.run(
-        sources=layout.path("text"), quiet=True,
-        internal_hosts=cfg.importer.internal_hosts,
-        linkmap_path=os.path.join(layout.root, "kb", "linkmap.json"),
-        graph_path=os.path.join(layout.root, "kb", "graph.md"))
+    linkmap_path = os.path.join(layout.root, "kb", "linkmap.json")
+    previous = None if (converted or force) else \
+        link_module.unchanged_since_last_run(
+            layout.path("text"), linkmap_path, cfg.importer.internal_hosts)
+    if previous:
+        registry, stats = previous
+    else:
+        registry, stats = link_module.run(
+            sources=layout.path("text"), quiet=True,
+            internal_hosts=cfg.importer.internal_hosts,
+            linkmap_path=linkmap_path,
+            graph_path=os.path.join(layout.root, "kb", "graph.md"))
 
     report = {"documents": len(registry), "converted": converted,
               "skipped": skipped, "failed": failed, "log": log, "link": stats}

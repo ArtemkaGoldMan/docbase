@@ -158,10 +158,6 @@ SCRIPTS.update(GREEK)
 SCRIPTS.update(LATIN_EXTRAS)
 
 
-def _words(blob):
-    return frozenset(blob.split())
-
-
 def transliterate(text, extra_map=None):
     """Any script -> ASCII, as faithfully as a lookup table can manage.
 
