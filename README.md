@@ -105,6 +105,11 @@ docbase find "how late can I submit a claim"
 | `.md` `.markdown` `.txt` `.rst` | already text; underlined headings and a declared title are picked up |
 | `.html` `.htm` | best for table-heavy pages: a row stays a row |
 | `.docx` | Word; headings from styles, nested and numbered lists, tables, links |
+
+In HTML and Word, a numbered part at the start of a short paragraph —
+*Стаття 8.*, *Article 5*, *Chapter IV*, *§ 3* — is read as a heading even when
+only a stylesheet made it look like one. Laws, contracts and internal policies
+are published that way, and without it a whole regulation is one section.
 | `.doc` `.mhtml` | wiki "Export to Word" (MHTML inside); keeps macro tabs and the pictures inside it |
 | `.pdf` | works everywhere; links, reading order and figures are recovered |
 | `.zip` | a space export — pages and their attachments, imported in one step |
@@ -320,6 +325,20 @@ makes it work, and it only works because the doubt fires on the answers that
 are wrong: in every case where it stopped to ask, the right document was among
 the options it named.
 
+The same in Ukrainian — eight laws on consumer financial services, 32 questions
+in plain Ukrainian, scored by the **article** that answers them
+([`benchmarks/ukrainian-laws/`](benchmarks/ukrainian-laws/)):
+
+| | right article | right law, another article | wrong law | stopped to ask |
+|---|---|---|---|---|
+| first search alone | 8 of 32 | 12 | 12 | — |
+| with the ask-again loop | **20** | 7 | **3** | 2 |
+
+Legal Ukrainian is further from how people talk than a programming manual is
+from how programmers do, and it shows: the first search finds the right
+article one time in four. Through the loop it is nearly two in three, and the
+answers from the wrong law drop from twelve to three.
+
 ### `docbase eval`
 
 ```bash
@@ -437,9 +456,14 @@ Stated plainly, because knowing where a tool stops is part of using it.
   brings that to 57 of 64. An agent that answers from the first result without
   reading the doubt will be wrong often.
 - **Stemming is a fixed-length prefix** — six letters for English, five for
-  every other language. Crude, and it occasionally conflates unrelated words.
-  Only English was measured; the others keep five because an inflected
-  language agrees on fewer letters, not because anyone checked.
+  every other language. Crude, and it occasionally conflates unrelated words:
+  *гарантія* (a warranty) and *гарантування* (a deposit guarantee) are the
+  same word to it. English and Ukrainian were measured; for Ukrainian no cut
+  between four and seven letters did better than another, and the other
+  languages keep five without having been checked.
+- **Legal language is hard for it.** On Ukrainian law the first search finds
+  the right article one time in four. The ask-again loop brings that to 20 of
+  32; an agent that skips it will mostly answer from the wrong article.
 - **Column detection is tuned for wiki exports.** Other page layouts may need
   different `MIN_GUTTER` / `MIN_ROW_GAP` thresholds. Heading detection is not:
   it measures against each document's own body text.
