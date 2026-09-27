@@ -146,7 +146,8 @@ def load(root=None):
             layout = replace(layout, **{key: value})
 
     search = Search()
-    for key, value in _section(raw, "search").items():
+    search_raw = _section(raw, "search")
+    for key, value in search_raw.items():
         if hasattr(search, key):
             search = replace(search, **{key: value})
 
@@ -159,6 +160,12 @@ def load(root=None):
     language = raw.get("language", "en")
     if isinstance(language, str):
         language = [language]
+
+    # How far to cut a word depends on how the language inflects. A value
+    # written in the config still wins: it is somebody's measurement.
+    if "stem_length" not in search_raw:
+        search = replace(search,
+                         stem_length=languages.stem_length(language or ["en"]))
 
     custom_stop, custom_translit = languages.load_custom(layout.root)
 

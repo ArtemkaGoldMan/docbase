@@ -117,6 +117,27 @@ NUMBER_WORDS = {
 }
 
 
+#: How many leading letters a word is cut to before words are compared.
+#:
+#: Measured on English, against questions worded the way a person asks rather
+#: than the way a manual does. At five, "generates" and "generic" are the same
+#: word, so a question about code that writes code lands on generics. At six,
+#: three of nineteen such questions found the chapter they had missed, and
+#: none that had found it lost it.
+#:
+#: A heavily inflected language keeps its endings further out — "повернення",
+#: "повернути" and "повертає" agree on five letters and not on six — so the
+#: others stay at five until a corpus in that language says otherwise.
+STEM_LENGTH = {"en": 6}
+DEFAULT_STEM_LENGTH = 5
+
+
+def stem_length(codes):
+    """The cut for this set of languages; five unless they all agree."""
+    lengths = {STEM_LENGTH.get(code, DEFAULT_STEM_LENGTH) for code in codes}
+    return lengths.pop() if len(lengths) == 1 else DEFAULT_STEM_LENGTH
+
+
 def numbers(codes):
     """-> {spelled-out word: the digits it stands for} for these languages."""
     out = {}

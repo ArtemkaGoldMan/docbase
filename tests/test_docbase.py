@@ -2465,3 +2465,41 @@ class TestTheHookIsCheap(BaseCase):
             self.assertTrue(os.path.isfile(
                 os.path.join(self.cfg.layout.root, "kb", target)), target)
 
+
+class TestStemLengthFollowsTheLanguage(BaseCase):
+    """How far to cut a word depends on how the language inflects.
+
+    At five letters "generates" and "generic" are one English word, so a
+    question about code that writes code landed on generics with high
+    confidence. At six, three of nineteen questions worded the way a person
+    asks found the chapter they had missed, and none that had were lost.
+    A heavily inflected language agrees on five letters where it would not on
+    six, so it keeps five until someone measures it.
+    """
+
+    def _load(self, raw):
+        with open(os.path.join(self.root, "docbase.json"), "w") as handle:
+            json.dump(raw, handle)
+        return config_module.load(self.root)
+
+    def test_english_cuts_at_six(self):
+        self.assertEqual(self._load({"language": "en"}).search.stem_length, 6)
+
+    def test_ukrainian_keeps_five(self):
+        self.assertEqual(self._load({"language": "uk"}).search.stem_length, 5)
+
+    def test_a_mixed_base_keeps_five(self):
+        self.assertEqual(
+            self._load({"language": ["en", "uk"]}).search.stem_length, 5)
+
+    def test_a_measured_value_in_the_config_wins(self):
+        cfg = self._load({"language": "en", "search": {"stem_length": 7}})
+        self.assertEqual(cfg.search.stem_length, 7)
+
+    def test_generates_and_generic_are_different_english_words(self):
+        index = Index(self._load({"language": "en"}))
+        self.assertNotEqual(index.stems("generates"), index.stems("generic"))
+
+    def test_ukrainian_inflections_still_meet(self):
+        index = Index(self._load({"language": "uk"}))
+        self.assertEqual(index.stems("повернення"), index.stems("повернути"))
