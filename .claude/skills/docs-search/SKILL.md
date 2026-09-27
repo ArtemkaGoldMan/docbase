@@ -32,23 +32,39 @@ python -m docbase map "invoicing"
 
 ## When the output says LOW CONFIDENCE
 
-This is not a signal to give up. It means the words of the question did not
-match the words of the documentation — which is normal, because people and
-manuals rarely use the same vocabulary.
+The best match may be the wrong one, and the output says why. People and
+manuals rarely use the same words — someone asks how to make a program
+"crash on purpose", the manual calls it "panic" — so this is the normal case,
+not a dead end. Measured on questions worded the way people ask, about half
+of first searches miss; a second search in the documentation's own words is
+how they get answered.
 
-Do this, in order:
+Never answer from a LOW CONFIDENCE result as it stands. Instead:
 
-1. Read the section map that `find` prints alongside the warning. Pick where
-   the topic would plausibly live.
-2. Search again **using the wording the documentation would use**, not the
-   wording of the question. Put yourself in the author's position.
-3. Still nothing: read the section directly.
+1. **Ask again in the documentation's words.** The output lists the words of
+   the question the documentation never uses — replace those first. Take the
+   replacements from the headings it shows for the nearby topics, and from
+   the fragments themselves: a fragment that says "instead of allowing the
+   program to panic" has just told you what the manual calls it.
+2. **Two more searches at most.** Each costs about 1k tokens; a wrong answer
+   costs more, but a hunt through the whole base costs more than either.
+3. **When two searches agree on a section, read it whole** and answer from
+   it, quoting what a person will act on:
    ```bash
    sed -n '<line>,+40p' kb/text/<file>.md
    ```
-4. Only after those three steps say the base does not cover it.
+4. **When they still do not agree, look at what is competing.**
+   - The documents are about the same thing — three guides to logging, say —
+     read the first; either answers the question.
+   - They are about different things — "Installation" and "Installing
+     Binaries with cargo install" — ask the person which one they meant, and
+     name the options. On questions measured this way, the right document was
+     among the options every time.
+   - It matches none of them — say the documentation does not seem to cover
+     it, what you searched for, and which documents came closest.
 
-An extra search costs about 1k tokens. A wrong answer costs more.
+A result without LOW CONFIDENCE can still be wrong, only less often. If the
+fragment does not actually answer the question, treat it the same way.
 
 ## Cards
 

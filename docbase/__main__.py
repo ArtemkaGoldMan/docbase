@@ -54,29 +54,21 @@ def cmd_find(args, cfg):
     settings = cfg.search
 
     if not hits:
-        print("LOW CONFIDENCE: nothing matched at all.\n")
+        print("LOW CONFIDENCE — nothing in the base matched the question.")
+        unknown = index.unknown_words(query)
+        if unknown:
+            print("Words the documentation never uses: " + ", ".join(unknown))
+        print()
         _print_map(index, cap=25)
-        print("\nThis topic may not be in the base. Check the map above "
-              "before concluding the answer is missing.")
+        print("\nAsk again in the documentation's words, taken from the map "
+              "above. Only after that conclude the base does not cover it.")
         return 0
 
-    if hits[0][0] < settings.low_confidence:
-        print(f"LOW CONFIDENCE (best score {hits[0][0]:.2f} "
-              f"< {settings.low_confidence}).")
-        print("The fragments below may be the wrong ones. Where to look next:\n")
-        shown = []
-        for _score, name, _line, _heading, _body in hits:
-            if name in shown:
-                continue
-            shown.append(name)
-            print(f"  {name}")
-            for line_no, heading in index.headings(name)[:12]:
-                print(f"     {line_no:>5}  {heading}")
-            if len(shown) == 2:
-                break
-        print("\n  Next: search again using the wording of the documentation")
-        print("  rather than the wording of the question, or read the section")
-        print("  directly: sed -n '<line>,+40p' <file>\n")
+    from .search import low_confidence_notice
+    notice = low_confidence_notice(index, query, hits)
+    if notice:
+        print("\n".join(notice))
+        print()
 
     budget = settings.total_chars
     for score, name, line_no, heading, body in hits:

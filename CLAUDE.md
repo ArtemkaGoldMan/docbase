@@ -39,10 +39,12 @@ faster than it earns anything.
 
 ## When `find` says LOW CONFIDENCE
 
-The query's words did not match the documentation's words — normal, not a dead
-end. Read the section map it prints, search again using the wording the
-documentation would use, then read the section directly with
-`sed -n '<line>,+40p'`. Only after that conclude it is missing.
+The best match may be the wrong one; the output says why, which words of the
+question the documentation never uses, and what it calls the nearby topics.
+Ask again using those words — at most twice. If two searches agree on a
+section, read it with `sed -n '<line>,+40p'`. If they do not, ask the person
+which nearby topic they meant, or say the base does not cover it. Never answer
+from a LOW CONFIDENCE result as it stands.
 
 ## Cards and history
 

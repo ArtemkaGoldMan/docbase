@@ -138,15 +138,17 @@ def _search(cfg, arguments):
     hits = index.search(query, limit=int(arguments.get("limit") or
                                          cfg.search.default_hits))
     if not hits:
-        return ("Nothing matched. This topic may not be in the base — "
-                "call list_documents before concluding the answer is missing.")
+        unknown = index.unknown_words(query)
+        return ("LOW CONFIDENCE — nothing in the base matched the question."
+                + (" Words the documentation never uses: " + ", ".join(unknown)
+                   + "." if unknown else "")
+                + " Ask again in the documentation's words; call "
+                  "list_documents to see them before concluding the answer "
+                  "is missing.")
 
-    lines = []
-    if hits[0][0] < cfg.search.low_confidence:
-        lines.append(
-            f"LOW CONFIDENCE (best {hits[0][0]:.2f} < {cfg.search.low_confidence}). "
-            "The wording of the question may not match the documentation; "
-            "consider searching again with its terms, or call list_documents.")
+    from .search import low_confidence_notice
+    lines = low_confidence_notice(index, query, hits)
+    if lines:
         lines.append("")
 
     budget = cfg.search.total_chars

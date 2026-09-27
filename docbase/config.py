@@ -49,8 +49,12 @@ class Search:
     per_hit_chars: int = 620
     total_chars: int = 6000
     low_confidence: float = 0.9
+    #: When the best document leads the next one by less than this factor,
+    #: the question does not tell them apart.
+    close_race: float = 1.15
     heading_weight: float = 2.0
     density_weight: float = 0.4
+
 
 
 @dataclass(frozen=True)

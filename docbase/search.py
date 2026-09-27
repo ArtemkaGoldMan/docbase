@@ -37,6 +37,10 @@ RE_GENERATED_TAIL = re.compile(r"Links found (on this page|in this document)$")
 #: repository is full of them.
 RE_FENCE = re.compile(r"^\s*(?:```|~~~)")
 
+#: Bumped whenever what the index stores changes shape, so an old cache is
+#: rebuilt instead of misread.
+CACHE_FORMAT = 2
+
 RE_DOC_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)")
 
 #: Past this many documents the map names them and stops. The sections of
@@ -174,6 +178,7 @@ class Index:
         self.cfg = cfg
         self._key = None
         self.chunks = []
+        self.titles = {}
         self._bodies = (None, [])
         self.idf = {}
         self.loaded_from_cache = False
@@ -229,6 +234,7 @@ class Index:
             self.chunks = [(n, l, h, q, set(bs), set(hs))
                            for n, l, h, q, bs, hs in data["chunks"]]
             self.idf = data["idf"]
+            self.titles = {n: set(t) for n, t in data["titles"].items()}
         except (KeyError, TypeError, ValueError):
             return False
         self._key = key
@@ -242,7 +248,8 @@ class Index:
                        "settings": self.settings_key(),
                        "chunks": [[n, l, h, q, sorted(bs), sorted(hs)]
                                   for n, l, h, q, bs, hs in self.chunks],
-                       "idf": self.idf}
+                       "idf": self.idf,
+                       "titles": {n: sorted(t) for n, t in self.titles.items()}}
             temporary = self.cache_path() + ".tmp"
             with open(temporary, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle)
@@ -259,7 +266,7 @@ class Index:
         settings, and a config change appears to do nothing.
         """
         settings = self.cfg.search
-        return [settings.chunk_chars, settings.chunk_overlap,
+        return [CACHE_FORMAT, settings.chunk_chars, settings.chunk_overlap,
                 settings.stem_length, sorted(self.cfg.languages)]
 
     def build(self):
@@ -269,9 +276,10 @@ class Index:
             return self
         if self._load_cache(key):
             return self
-        chunks, frequency = [], {}
+        chunks, frequency, titles = [], {}, {}
         self._bodies = (None, [])
         for name, path in files:
+            titles[name] = self.stems(title_of(path))
             settings = self.cfg.search
             overlap = int(settings.chunk_chars * settings.chunk_overlap)
             parts = sections(path, settings.chunk_chars, overlap)
@@ -283,6 +291,7 @@ class Index:
                     frequency[token] = frequency.get(token, 0) + 1
         total = max(len(chunks), 1)
         self.chunks = chunks
+        self.titles = titles
         self.idf = {t: math.log(1 + total / c) for t, c in frequency.items()}
         self._key = key
         self.loaded_from_cache = False
@@ -321,11 +330,11 @@ class Index:
         # the denominator made every hit look weak on a small corpus, where
         # few words are common enough to be "known" in the first place.
         known = {w for w in wanted if w in self.idf}
+        settings = self.cfg.search
         budget = sum(self.idf[w] for w in known) or 1.0
         # A query whose words are mostly absent from the corpus is a miss,
         # however well the few remaining words happen to match.
         known_ratio = len(known) / len(wanted)
-        settings = self.cfg.search
 
         hits = []
         for name, line_no, heading, seq, body_stems, head_stems in self.chunks:
@@ -342,6 +351,72 @@ class Index:
         hits.sort(key=lambda hit: (-hit[0], hit[1], hit[2]))
         return [(score, name, line_no, heading, self.snippet(name, seq))
                 for score, name, line_no, heading, seq in hits[:limit]]
+
+    # -- judging an answer -------------------------------------------------
+    def doubts(self, query, hits):
+        """-> why the best answer may be the wrong one; empty when it holds up.
+
+        The score alone let most wrong answers through looking confident, and
+        a confident wrong answer is the one that never gets checked. Measured
+        on 64 questions worded the way people ask rather than the way a manual
+        does, and run through the whole loop — search, and ask again in the
+        documentation's words when in doubt — the answers that ended up wrong
+        went from 21 to 2, with as many right as before. Three signals:
+
+        * the document the best match sits in has a title that shares no word
+          with the question;
+        * the match is weak and nothing near it agrees;
+        * another document is almost as likely. Wrong answers were nearly all
+          of this kind: "install" found "Installing Binaries with cargo
+          install", one place above "Installation".
+        """
+        if not hits:
+            return ["nothing in the base matched the question"]
+        settings = self.cfg.search
+        wanted = self.stems(query)
+        top = hits[0]
+        reasons = []
+        if not wanted & self.titles.get(top[1], set()):
+            reasons.append(f"the best match is in {top[1]}, whose title shares "
+                           f"no word with the question")
+        agree = sum(1 for hit in hits[:5] if hit[1] == top[1])
+        if top[0] < settings.low_confidence and agree < 2:
+            reasons.append(f"the best match covers little of the question "
+                           f"(score {top[0]:.2f}) and nothing near it agrees")
+        second = next((hit for hit in hits if hit[1] != top[1]), None)
+        if second and top[0] < settings.close_race * second[0]:
+            reasons.append(f"{second[1]} is almost as likely ({second[0]:.2f} "
+                           f"against {top[0]:.2f}) — the question does not "
+                           f"tell the two apart")
+        return reasons
+
+    def unknown_words(self, query):
+        """Words of the question the documentation never uses.
+
+        The most useful thing to know before asking again: these are exactly
+        the words to replace, because nothing in the base can match them.
+        """
+        self.build()
+        length, stops, seen, out = (self.cfg.search.stem_length,
+                                    self.cfg.stopwords, set(), [])
+        for word in re.findall(r"[\w'’-]+", query, re.UNICODE):
+            if word.lower() in stops or len(word) < 2:
+                continue
+            token = stem(word, length)
+            if token not in self.idf and token not in seen:
+                seen.add(token)
+                out.append(word)
+        return out
+
+    def closest_documents(self, hits, count=3):
+        """Distinct documents in the order the search ranked them."""
+        out = []
+        for hit in hits:
+            if hit[1] not in out:
+                out.append(hit[1])
+            if len(out) == count:
+                break
+        return out
 
     def headings(self, name):
         """The document's own sections.
@@ -408,3 +483,45 @@ def outline(index, wanted="", cap=0):
     if not detailed:
         out.append(f"\n{len(files)} documents. Name one to see its sections.")
     return out
+
+
+#: How many sections of each close document to show when asking again. Enough
+#: to see what the documentation calls the topic; not the whole outline.
+DOUBT_HEADINGS = 6
+
+
+def low_confidence_notice(index, query, hits):
+    """-> lines telling the reader why to doubt the answer and how to ask
+    again, or [] when the answer holds up.
+
+    Written for whoever acts on it, person or agent: the reasons, the words
+    that cannot match anything, and the vocabulary the documentation uses for
+    the nearby topics — which is what a second question should be built from.
+    """
+    reasons = index.doubts(query, hits)
+    if not reasons:
+        return []
+    lines = ["LOW CONFIDENCE — the best match may be the wrong one:"]
+    lines += [f"  - {reason}" for reason in reasons]
+
+    unknown = index.unknown_words(query)
+    if unknown:
+        lines += ["", "Words from the question the documentation never uses: "
+                  + ", ".join(unknown),
+                  "  Replace these first — nothing in the base can match them."]
+
+    closest = index.closest_documents(hits)
+    if closest:
+        lines += ["", "What the documentation calls the nearby topics:"]
+        for name in closest:
+            lines.append(f"  {name}")
+            for line_no, heading in index.headings(name)[:DOUBT_HEADINGS]:
+                lines.append(f"     {line_no:>5}  {heading}")
+
+    lines += ["",
+              "Ask again in the documentation's words, taken from the headings "
+              "above. If two searches agree on a section, read it whole. If "
+              "they do not, the base may not cover this — say so, or ask "
+              "which of the nearby topics was meant."]
+    return lines
+

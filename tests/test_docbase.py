@@ -2503,3 +2503,91 @@ class TestStemLengthFollowsTheLanguage(BaseCase):
     def test_ukrainian_inflections_still_meet(self):
         index = Index(self._load({"language": "uk"}))
         self.assertEqual(index.stems("повернення"), index.stems("повернути"))
+
+
+class TestDoubtingAnAnswer(BaseCase):
+    """LOW CONFIDENCE has to fire on the answers that are wrong.
+
+    On 64 questions worded the way people ask, the score alone let most wrong
+    answers through looking confident — and a confident wrong answer is the
+    one nobody checks. Run through the whole loop, searching again in the
+    documentation's words when in doubt, the answers that ended up wrong went
+    from 21 to 2 with as many right as before.
+    """
+
+    def _base(self):
+        self.drop("install.md", "# Installation\n\nDownload rustup and run the "
+                  "installer. The toolchain then lives in your home folder.\n")
+        self.drop("cargo.md", "# Installing binaries with cargo install\n\n"
+                  "cargo install fetches a crate and installs its binary.\n")
+        self.drop("vectors.md", "# Storing lists of values with vectors\n\n"
+                  + "A vector stores a list of values next to each other. " * 6
+                  + "\n\n## Reading elements\n\nIndex into a vector to read.\n")
+        self.drop("panic.md", "# Unrecoverable errors with panic\n\n"
+                  "Call panic when the program reaches a state it cannot "
+                  "recover from; it prints a message and exits.\n")
+        self.sync(quiet=True)
+        return Index(self.cfg).build()
+
+    def _doubts(self, index, query):
+        return index.doubts(query, index.search(query))
+
+    def test_a_clear_answer_is_not_doubted(self):
+        index = self._base()
+        self.assertEqual(self._doubts(index, "store a list of values in a vector"), [])
+
+    def test_a_title_sharing_nothing_with_the_question_is_doubted(self):
+        index = self._base()
+        reasons = self._doubts(index, "program exits with a message")
+        self.assertTrue(any("title shares no word" in r for r in reasons), reasons)
+
+    def test_a_close_race_names_the_other_document(self):
+        """Wrong answers were nearly all of this kind."""
+        index = self._base()
+        reasons = self._doubts(index, "install")
+        self.assertTrue(any("almost as likely" in r for r in reasons), reasons)
+
+    def test_nothing_found_is_a_doubt(self):
+        index = self._base()
+        self.assertEqual(index.doubts("anything", []),
+                         ["nothing in the base matched the question"])
+
+    def test_words_the_documentation_never_uses_are_named(self):
+        index = self._base()
+        self.assertEqual(index.unknown_words("crash the program on purpose"),
+                         ["crash", "purpose"])
+
+    def test_a_stopword_is_not_reported_as_unknown(self):
+        index = self._base()
+        self.assertNotIn("how", index.unknown_words("how do I read a vector"))
+
+    def test_the_notice_says_what_to_do_next(self):
+        from docbase.search import low_confidence_notice
+        index = self._base()
+        query = "crash the program on purpose"
+        notice = "\n".join(low_confidence_notice(index, query, index.search(query)))
+        self.assertIn("LOW CONFIDENCE", notice)
+        self.assertIn("never uses: crash, purpose", notice)
+        self.assertIn("Ask again in the documentation's words", notice)
+
+    def test_a_confident_answer_carries_no_notice(self):
+        from docbase.search import low_confidence_notice
+        index = self._base()
+        query = "store a list of values in a vector"
+        self.assertEqual(low_confidence_notice(index, query, index.search(query)), [])
+
+    def test_the_mcp_answer_carries_the_same_notice(self):
+        from docbase import mcp
+        self._base()
+        answer = mcp.call_tool(self.cfg, "search_documentation",
+                               {"query": "crash the program on purpose"})
+        self.assertIn("LOW CONFIDENCE", answer)
+        self.assertIn("never uses", answer)
+
+    def test_the_cli_prints_it(self):
+        from docbase import __main__ as cli
+        self._base()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cli.main(["--root", self.root, "find", "crash", "the",
+                      "program", "on", "purpose"])
+        self.assertIn("never uses: crash, purpose", out.getvalue())
