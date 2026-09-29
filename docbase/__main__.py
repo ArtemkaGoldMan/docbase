@@ -208,7 +208,29 @@ def build_parser():
     return parser
 
 
+def speak_utf8():
+    """Read and write UTF-8 on stdin, stdout and stderr, whatever the system
+    code page says.
+
+    On Windows a pipe is encoded in the ANSI code page — cp1252 on an English
+    system, cp1251 on a Ukrainian one — and every consumer of this tool reads
+    it through a pipe: the pre-turn hook, an agent's shell, an MCP client.
+    They all expect UTF-8. On an English system the first Cyrillic fragment
+    crashed the search; on a Ukrainian one the MCP server decoded a client's
+    question as cp1251 and answered every Ukrainian question with "nothing in
+    the base matched". A console is unaffected: it already speaks UTF-8.
+    """
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass            # a detached or already-closed stream
+
+
 def main(argv=None):
+    speak_utf8()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):
