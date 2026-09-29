@@ -332,12 +332,12 @@ in plain Ukrainian, scored by the **article** that answers them
 | | right article | right law, another article | wrong law | stopped to ask |
 |---|---|---|---|---|
 | first search alone | 8 of 32 | 12 | 12 | — |
-| with the ask-again loop | **20** | 7 | **3** | 2 |
+| with the ask-again loop | **23** | 6 | **1** | 2 |
 
 Legal Ukrainian is further from how people talk than a programming manual is
 from how programmers do, and it shows: the first search finds the right
-article one time in four. Through the loop it is nearly two in three, and the
-answers from the wrong law drop from twelve to three.
+article one time in four. Through the loop it is nearly three in four, and the
+answers from the wrong law drop from twelve to one.
 
 ### `docbase eval`
 
@@ -462,7 +462,7 @@ Stated plainly, because knowing where a tool stops is part of using it.
   between four and seven letters did better than another, and the other
   languages keep five without having been checked.
 - **Legal language is hard for it.** On Ukrainian law the first search finds
-  the right article one time in four. The ask-again loop brings that to 20 of
+  the right article one time in four. The ask-again loop brings that to 23 of
   32; an agent that skips it will mostly answer from the wrong article.
 - **Column detection is tuned for wiki exports.** Other page layouts may need
   different `MIN_GUTTER` / `MIN_ROW_GAP` thresholds. Heading detection is not:

@@ -37,9 +37,9 @@ RE_GENERATED_TAIL = re.compile(r"Links found (on this page|in this document)$")
 #: repository is full of them.
 RE_FENCE = re.compile(r"^\s*(?:```|~~~)")
 
-#: Bumped whenever what the index stores changes shape, so an old cache is
-#: rebuilt instead of misread.
-CACHE_FORMAT = 2
+#: Bumped whenever what the index stores changes shape or meaning, so an old
+#: cache is rebuilt instead of misread. 3: fragments name their true line.
+CACHE_FORMAT = 3
 
 RE_DOC_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)")
 
@@ -58,6 +58,29 @@ RE_SENTENCE = re.compile(r"(?<=[.!?:])\s+|(?=[•▪✅❌⛔⚠])")
 def stem(word, length):
     word = word.lower().strip("«»\"'.,:;!?()[]–—-")
     return word[:length] if len(word) > length else word
+
+
+#: Share of words two fragments have in common before one is a copy of the
+#: other. Overlapping neighbours share about a quarter.
+NEAR_COPY = 0.8
+
+#: Share of a passage's words that must reappear together elsewhere for the
+#: passage to be there too. A page exported twice, by two converters, reaches
+#: it for most of its passages; eight different laws, for 9 of 1,400 — the
+#: provisions they repeat word for word.
+SAME_PASSAGE = 0.9
+#: Share of a document's passages another must hold to be a copy of it, and
+#: how many passages are checked.
+COPY_SHARE = 0.4
+COPY_SAMPLE = 40
+#: Fewest distinct words that make a passage worth recognising elsewhere —
+#: about 180 characters; a full fragment has 40 to 50.
+MIN_PASSAGE = 20
+
+
+def alike(a, b):
+    """Whether two fragments' words are nearly the same."""
+    return bool(a and b) and len(a & b) >= NEAR_COPY * len(a | b)
 
 
 def outside_fences(lines):
@@ -100,26 +123,54 @@ def split_chunks(text, chunk_chars, overlap_chars=0):
     The overlap is carried back as whole sentences — splitting mid-sentence
     would add noise to the index without adding an answer.
     """
-    sentences = [piece for piece in RE_SENTENCE.split(text) if piece]
+    return [chunk for _, chunk in chunk_spans(text, chunk_chars, overlap_chars)]
+
+
+def _sentence_spans(text):
+    """(offset, sentence) for every sentence, as RE_SENTENCE splits them."""
+    spans, start = [], 0
+    for match in RE_SENTENCE.finditer(text):
+        if match.start() > start:
+            spans.append((start, text[start:match.start()]))
+        start = max(start, match.end())
+    if start < len(text):
+        spans.append((start, text[start:]))
+    return spans
+
+
+def chunk_spans(text, chunk_chars, overlap_chars=0):
+    """split_chunks, with the offset in ``text`` where each fragment begins.
+
+    With overlap a fragment starts inside the one before it. Counting the
+    lengths of the fragments instead put its start ever further down the
+    page: in a long document half of them named a line below their own text,
+    and whoever read from that line missed the start of the answer.
+    """
+    sentences = _sentence_spans(text)
     parts, current = [], []
 
     def length(items):
-        return sum(len(i) + 1 for i in items)
+        return sum(len(piece) + 1 for _, piece in items)
 
-    for piece in sentences:
-        if current and length(current) + len(piece) > chunk_chars:
-            parts.append(" ".join(current).strip())
+    def emit(items):
+        chunk = " ".join(piece for _, piece in items).strip()
+        if chunk:
+            parts.append((items[0][0], chunk))
+
+    for span in sentences:
+        if current and length(current) + len(span[1]) > chunk_chars:
+            emit(current)
             carried, size = [], 0
             for previous in reversed(current):
-                if overlap_chars <= 0 or size + len(previous) > overlap_chars:
+                if overlap_chars <= 0 or size + len(previous[1]) > overlap_chars:
                     break
                 carried.insert(0, previous)
-                size += len(previous)
+                size += len(previous[1])
             current = carried
-        current.append(piece)
+        current.append(span)
 
-    if current and " ".join(current).strip():
-        parts.append(" ".join(current).strip())
+    if current:
+        emit(current)
     return parts
 
 
@@ -139,16 +190,17 @@ def sections(path, chunk_chars, overlap_chars=0):
                 offsets.append((position, line))
             position += 1
         body = " ".join(line for _, line in offsets)
-        consumed = 0
-        for chunk in split_chunks(body, chunk_chars, overlap_chars):
-            line_no, seen = start, 0
-            for position, line in offsets:
-                if seen + len(line) + 1 > consumed:
-                    line_no = position
+        starts, seen = [], 0                 # where each line begins in body
+        for position, line in offsets:
+            starts.append((seen, position))
+            seen += len(line) + 1
+        for offset, chunk in chunk_spans(body, chunk_chars, overlap_chars):
+            line_no = start
+            for begins, position in starts:
+                if begins > offset:
                     break
-                seen += len(line) + 1
+                line_no = position
             out.append((line_no, heading, chunk))
-            consumed += len(chunk) + 1
 
     for number, raw in enumerate(lines, 1):
         match = RE_HEADING.match(raw)
@@ -181,6 +233,7 @@ class Index:
         self.titles = {}
         self._bodies = (None, [])
         self.idf = {}
+        self._copies = {}
         self.loaded_from_cache = False
 
     # -- corpus discovery -------------------------------------------------
@@ -274,6 +327,7 @@ class Index:
         key = tuple((name, os.path.getmtime(path)) for name, path in files)
         if self._key == key:
             return self
+        self._copies = {}
         if self._load_cache(key):
             return self
         chunks, frequency, titles = [], {}, {}
@@ -326,12 +380,19 @@ class Index:
             return []
 
         # Confidence is measured against the best score this query could
-        # reach, not against an absolute ceiling. Charging unknown words to
-        # the denominator made every hit look weak on a small corpus, where
-        # few words are common enough to be "known" in the first place.
+        # reach. A word the documentation never uses is charged at the weight
+        # of its rarest word: the question is asked in other words than the
+        # answer, and the score says so. Left out, a question in a client's
+        # words — "can I return a thing that just did not fit" — matched the
+        # law's words it did share as confidently as the law's own phrasing,
+        # and answered with the wrong article; charged, it is doubted and
+        # asked again. On 32 questions about Ukrainian law the right article
+        # went from 20 to 23 and the wrong law from 3 to 1; nothing changed on
+        # 64 English ones.
         known = {w for w in wanted if w in self.idf}
         settings = self.cfg.search
-        budget = sum(self.idf[w] for w in known) or 1.0
+        rarest = math.log(1 + len(self.chunks))
+        budget = sum(self.idf.get(w, rarest) for w in wanted) or 1.0
         # A query whose words are mostly absent from the corpus is a miss,
         # however well the few remaining words happen to match.
         known_ratio = len(known) / len(wanted)
@@ -347,10 +408,56 @@ class Index:
             coverage = gained / budget
             density = len(in_body) / max(len(body_stems), 1)
             score = (coverage + settings.density_weight * density) * known_ratio
-            hits.append((score, name, line_no, heading, seq))
+            hits.append((score, name, line_no, heading, seq, body_stems))
         hits.sort(key=lambda hit: (-hit[0], hit[1], hit[2]))
+
+        # The same page exported twice, or a block a wiki page repeats, would
+        # otherwise fill the answer with one fragment shown over and over.
+        kept = []
+        for hit in hits:
+            if any(alike(hit[5], other[5]) for other in kept):
+                continue
+            kept.append(hit)
+            if len(kept) == limit:
+                break
         return [(score, name, line_no, heading, self.snippet(name, seq))
-                for score, name, line_no, heading, seq in hits[:limit]]
+                for score, name, line_no, heading, seq, _ in kept]
+
+    def _windows(self, name):
+        """Each fragment of a document joined with the next one.
+
+        Two exports of one page are cut into fragments at different places,
+        so a passage of one lands across two fragments of the other.
+        """
+        parts = [chunk[4] for chunk in self.chunks if chunk[0] == name]
+        return [a | b for a, b in zip(parts, parts[1:] + [set()])]
+
+    def says(self, name, words):
+        """Whether document ``name`` contains the passage these words make.
+
+        Only a passage long enough to mean something: "In this Law the terms
+        are used in the following meaning" opens every law, and finding it in
+        another law says nothing about which one answers the question.
+        """
+        return len(words) >= MIN_PASSAGE and any(
+            len(words & window) >= SAME_PASSAGE * len(words)
+            for window in self._windows(name))
+
+    def copies(self, top, name):
+        """Whether document ``name`` says what the best match ``top`` says:
+        it holds the same passage, or it is a copy of the whole document —
+        the same page dropped as both PDF and Word. Either way it gives the
+        same answer, and two copies are not two answers to choose between."""
+        if self.says(name, self.stems(top[4])):
+            return True
+        pair = (top[1], name)
+        if pair not in self._copies:
+            own = [chunk[4] for chunk in self.chunks
+                   if chunk[0] == top[1] and len(chunk[4]) >= MIN_PASSAGE]
+            sample = own[::max(1, len(own) // COPY_SAMPLE)][:COPY_SAMPLE]
+            shared = sum(1 for words in sample if self.says(name, words))
+            self._copies[pair] = bool(sample) and shared >= COPY_SHARE * len(sample)
+        return self._copies[pair]
 
     # -- judging an answer -------------------------------------------------
     def doubts(self, query, hits):
@@ -397,7 +504,11 @@ class Index:
         elif top[0] < settings.low_confidence and agree < 2:
             reasons.append(f"the best match covers little of the question "
                            f"(score {top[0]:.2f}) and nothing near it agrees")
-        second = next((hit for hit in hits if hit[1] != top[1]), None)
+        # A document that says what the best match says is a copy of it — the
+        # same page dropped as both PDF and Word — and gives the same answer.
+        # Two copies are not two answers to choose between.
+        second = next((hit for hit in hits if hit[1] != top[1]
+                       and not self.copies(top, hit[1])), None)
         if second and top[0] < settings.close_race * second[0]:
             reasons.append(f"{second[1]} is almost as likely ({second[0]:.2f} "
                            f"against {top[0]:.2f}) — the question does not "

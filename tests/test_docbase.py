@@ -709,6 +709,24 @@ class TestChunkOverlap(BaseCase):
             self.assertFalse(part.startswith("carries"),
                              "a fragment began mid-sentence")
 
+    def test_a_fragment_names_the_line_its_text_is_on(self):
+        """Counting fragment lengths put an overlapping fragment's start ever
+        further down the page. In a long document half of them named a line
+        below their own text, so reading from that line missed the answer."""
+        from docbase.search import sections
+        paragraphs = [" ".join(f"Paragraph {p} sentence {s} states fact {p}{s}."
+                               for s in range(1, 9)) for p in range(1, 9)]
+        path = os.path.join(self.root, "long.md")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("# Long\n\n" + "\n\n".join(paragraphs) + "\n")
+        lines = open(path, encoding="utf-8").read().splitlines()
+
+        found = sections(path, 300, 100)
+        self.assertGreater(len(found), 10)
+        for line_no, _heading, chunk in found[1:]:
+            self.assertIn(chunk[:30], lines[line_no - 1],
+                          f"fragment {chunk[:30]!r} is not on line {line_no}")
+
     def test_changing_chunk_settings_invalidates_the_cache(self):
         """Otherwise a config change appears to do nothing at all."""
         from dataclasses import replace as dc_replace
@@ -2675,6 +2693,66 @@ class TestDoubtingAnAnswer(BaseCase):
         index = self._base()
         reasons = self._doubts(index, "install")
         self.assertTrue(any("almost as likely" in r for r in reasons), reasons)
+
+    #: A page long enough to be cut into several fragments.
+    LOANS = " ".join(
+        f"Rule {n}: a microscope loan with a signed request is approved by "
+        f"the lab manager before the department pays the {n}0 euro calibration "
+        f"fee, and return deadline number {n} is written on the form."
+        for n in range(1, 9))
+
+    def test_the_same_page_dropped_twice_is_not_a_close_race(self):
+        """Exported as both PDF and Word, one page became two documents that
+        matched every question equally — and every answer about it was
+        doubted, because "the question does not tell the two apart"."""
+        self.drop("loans.md", "# Equipment loans\n\n" + self.LOANS + "\n")
+        # The second converter cut the same text into different lines.
+        self.drop("loans-copy.txt", "Equipment loans\n===============\n\n"
+                  + self.LOANS.replace(". ", ".\n\n") + "\n")
+        self.drop("panic.md", "# Unrecoverable errors with panic\n\nCall panic.\n")
+        self.sync(quiet=True)
+        index = Index(self.cfg).build()
+        query = "calibration fee paid for a microscope loan with a signed request"
+        top = index.search(query)[0]
+        copy = next(name for name in self.text_files()
+                    if name != top[1] and name.startswith("equipment-loans"))
+
+        def race(other):
+            """The best match, and another document scoring just below it."""
+            return index.doubts(query, [top, (top[0] * 0.99, other, 1, "", "")])
+
+        self.assertFalse(any("almost as likely" in r for r in race(copy)))
+        self.assertTrue(any("almost as likely" in r for r in race(
+            "unrecoverable-errors-with-panic.md")))
+
+    def test_a_fragment_is_shown_once_however_often_it_is_stored(self):
+        self.drop("a.md", "# Equipment loans\n\n" + self.LOANS + "\n")
+        self.drop("b.md", "# Equipment loans, again\n\n" + self.LOANS + "\n")
+        self.sync(quiet=True)
+        index = Index(self.cfg).build()
+        texts = [hit[4] for hit in index.search("microscope calibration fee")]
+        self.assertEqual(len(texts), len(set(texts)))
+
+    def test_a_sentence_every_document_opens_with_does_not_make_a_copy(self):
+        """"In this Law the terms are used in the following meaning" opens
+        every law. Finding it in another law said the two were the same, and
+        a close race that should have been doubted was answered wrongly."""
+        opening = "In this document the terms are used in the following meaning:"
+        # A law's list of definitions is one long sentence, so the opening
+        # is a fragment of its own.
+        consumer = "; ".join(f"{n}) duty {n} is what a seller owes to a buyer "
+                             f"of goods" for n in range(1, 12)) + "."
+        banking = "; ".join(f"{n}) licence {n} is what a regulator grants to a "
+                            f"lender" for n in range(1, 12)) + "."
+        self.drop("a.md", f"# Consumer rights\n\n{opening}\n\n{consumer}\n")
+        self.drop("b.md", f"# Banking\n\n{opening}\n\n{banking}\n")
+        self.sync(quiet=True)
+        index = Index(self.cfg).build()
+        hits = index.search("terms used in the following meaning")
+        self.assertEqual(index.stems(hits[0][4]), index.stems(opening),
+                         "the fixture no longer isolates the opening sentence")
+        other = "banking.md" if hits[0][1] != "banking.md" else "consumer-rights.md"
+        self.assertFalse(index.copies(hits[0], other))
 
     def test_nothing_found_is_a_doubt(self):
         index = self._base()
