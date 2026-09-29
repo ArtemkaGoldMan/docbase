@@ -181,6 +181,30 @@ def relink(text, self_name, resolver, stats, pattern=None,
     return RE_MD_LINK.sub(repl, text)
 
 
+def linker(sources, internal_hosts=()):
+    """-> link(text, name): one document linked the way run() links it,
+    against the documents already in the base.
+
+    A freshly converted document still carries the wiki's URLs, and the copy
+    on disk carries local links. Compared as they stand, a document read
+    again unchanged looked rewritten: its cards were marked stale and its
+    history filled with links that had merely been stitched.
+    """
+    documents = scan(sources) if os.path.isdir(sources) else {}
+    if not documents:
+        return lambda text, name: text
+    resolver = resolve_module.Resolver(documents)
+    pattern = page_pattern(internal_hosts)
+
+    def is_internal(url):
+        return any(host in (url or "") for host in internal_hosts)
+
+    def link(text, name):
+        stats = {"linked": 0, "self": 0, "missing": {}, "edges": set()}
+        return relink(text, name, resolver, stats, pattern, is_internal)
+    return link
+
+
 def unchanged_since_last_run(sources, linkmap_path, internal_hosts=()):
     """-> the last run's registry and stats if linking again would change
     nothing, else None.

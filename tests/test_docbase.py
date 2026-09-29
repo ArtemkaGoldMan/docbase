@@ -179,6 +179,28 @@ class TestCards(BaseCase):
         self.sync(quiet=True)
         self.assertTrue(os.path.isfile(os.path.join(folder, "_stale")))
 
+    def test_a_linked_document_read_again_unchanged_is_unchanged(self):
+        """The copy on disk carries stitched local links and a fresh
+        conversion carries the wiki's URLs. Compared as they stood, every
+        document that linked to another looked rewritten when read again, and
+        its cards were marked stale for nothing."""
+        link = ('<p><a href="https://wiki.example.com/pages/viewpage.action?'
+                'pageId=2">Expense reports</a></p>')
+        self.drop("a.html", page(1, "Travel booking", "Book five days ahead.", link))
+        self.drop("b.html", page(2, "Expense reports", "Receipts must be PDF."))
+        self.sync(quiet=True)
+        self.assertIn("(expense-reports.md)", open(os.path.join(
+            self.cfg.layout.path("text"), "travel-booking.md"),
+            encoding="utf-8").read())
+        folder = self._make_card("travel", "travel-booking.md", "1")
+
+        report = self.sync(force=True)
+        self.assertFalse(os.path.isfile(os.path.join(folder, "_stale")))
+        self.assertFalse(any(" changed: " in line for line in report["log"]),
+                         report["log"])
+        self.assertFalse(os.path.isdir(os.path.join(
+            self.cfg.layout.path("history"), "travel-booking")))
+
     def test_card_source_is_repaired_when_the_file_is_renamed(self):
         self.drop("a.html", page(1, "Travel booking", "Domestic trips need five days."))
         self.sync(quiet=True)

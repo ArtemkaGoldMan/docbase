@@ -497,6 +497,7 @@ def run(cfg=None, quiet=False, force=False):
     log, failed, rebuilt = [], [], set()
     added = []
     converted = skipped = unchanged = 0
+    link = None             # built only when a document is read a second time
 
     collect_dropped(cfg, log)
 
@@ -578,6 +579,10 @@ def run(cfg=None, quiet=False, force=False):
         previous = ""
         if os.path.exists(destination):
             previous = open(destination, encoding="utf-8").read()
+            if link is None:
+                link = link_module.linker(layout.path("text"),
+                                          cfg.importer.internal_hosts)
+            markdown = link(markdown, out_name)
 
         if previous == markdown:
             # Re-parsed to the same text. Writing it anyway would change the
