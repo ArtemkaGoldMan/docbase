@@ -251,6 +251,10 @@ def demote_repeated(blocks):
             for block in blocks]
 
 
+def size_of(line):
+    return max(w["size"] for w in line)
+
+
 def runs_on(line, following, right):
     """Whether ``line`` was broken by the margin rather than by its writer.
 
@@ -286,8 +290,10 @@ def paragraphs(lines, body):
                  and not runs_on(line, following, right))
         prefix = heading_prefix(line, body, alone=alone)
 
-        if prefix and prefix == open_heading and not new_para:
-            out[-1] += " " + text          # a large heading wrapped in two
+        if (prefix and prefix == open_heading and not new_para
+                and (size_of(line) >= HEADING_RATIOS[-1][0] * body
+                     or runs_on(before, line, right))):
+            out[-1] += " " + text          # a heading wrapped in two
         elif prefix or new_para or open_heading or not out:
             out.append(prefix + text)      # text under a heading is not in it
         else:

@@ -1175,6 +1175,25 @@ class TestRealDocumentShapes(BaseCase):
         self.assertEqual(found[0], "### **Storage rules**")
         self.assertTrue(found[1].startswith("Label every bottle"))
 
+    def test_two_headings_in_a_row_stay_two(self):
+        """Only a heading the margin broke is one heading on two lines.
+        "Appendix C. Glossary" followed by the glossary's first term, both in
+        bold, came out as one heading naming both."""
+        from docbase.importers.pdf import paragraphs
+
+        line = self._line
+        found = paragraphs([line(100, ["Appendix", "C.", "Glossary"], size=11.5),
+                            line(112, ["Access", "control"]),
+                            line(124, ["Deciding", "who", "may", "use", "which",
+                                       "resource,", "and", "enforcing", "it."],
+                                 bold=False)], body=10.0)
+        self.assertEqual(found[:2], ["### **Appendix C. Glossary**",
+                                     "### **Access control**"])
+
+        title = paragraphs([line(100, ["The", "Framework"], size=20.0),
+                            line(124, ["Version", "Two"], size=20.0)], body=10.0)
+        self.assertEqual(title, ["# **The Framework** **Version Two**"])
+
     def test_a_heading_repeated_down_a_table_is_its_column(self):
         from docbase.importers.pdf import demote_repeated
 
