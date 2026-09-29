@@ -1087,6 +1087,63 @@ class TestRealDocumentShapes(BaseCase):
                     for t in ("This", "is", "a", "whole", "bold", "sentence.")]
         self.assertEqual(heading_prefix(sentence, body=12.0), "")
 
+        # Nor is a table cell: a number, or the tail of a wrapped cell.
+        for cell in (("12,5",), ("of", "the", "year")):
+            words = [{"size": 12.0, "fontname": "Arial-BoldMT", "text": t}
+                     for t in cell]
+            self.assertEqual(heading_prefix(words, body=12.0), "", cell)
+
+    @staticmethod
+    def _line(top, texts, bold=True, x0=50.0, size=10.0):
+        """One line of words, laid out left to right at 6 points a letter."""
+        words, x = [], x0
+        for text in texts:
+            width = 6.0 * len(text)
+            words.append({"text": text, "x0": x, "x1": x + width, "top": top,
+                          "bottom": top + size, "size": size, "uri": None,
+                          "fontname": "Arial-BoldMT" if bold else "ArialMT"})
+            x += width + 3.0
+        return words
+
+    def test_a_bold_paragraph_that_wraps_is_not_a_run_of_headings(self):
+        """Wiki exports set whole paragraphs in bold. Each wrapped line of one
+        is short, wholly bold and unpunctuated, and every one became a heading,
+        cut mid-sentence and swallowing the text after it."""
+        from docbase.importers.pdf import paragraphs
+
+        line = self._line
+        wrapped = [line(100, ["Before", "starting,", "always", "record", "the"]),
+                   line(112, ["sample", "number", "in", "the", "log", "book,", "never"]),
+                   line(124, ["on", "a", "loose", "sheet", "of", "paper"])]
+        # The first line runs to the margin: "sample" would not have fitted.
+        wrapped[0].append(dict(wrapped[0][-1], text="xxxxxxxxxxxxxxxxxxxx",
+                               x0=wrapped[0][-1]["x1"] + 3,
+                               x1=wrapped[0][-1]["x1"] + 123))
+        found = paragraphs(wrapped, body=10.0)
+        self.assertFalse([p for p in found if p.startswith("#")], found)
+        self.assertEqual(len(found), 1)
+
+    def test_a_bold_line_that_stands_alone_is_a_heading_and_owns_no_text(self):
+        from docbase.importers.pdf import paragraphs
+
+        line = self._line
+        found = paragraphs([
+            line(100, ["Storage", "rules"]),
+            line(112, ["Label", "every", "bottle", "with", "the", "date", "and",
+                       "the", "name", "of", "whoever", "opened", "it."], bold=False),
+        ], body=10.0)
+        self.assertEqual(found[0], "### **Storage rules**")
+        self.assertTrue(found[1].startswith("Label every bottle"))
+
+    def test_a_heading_repeated_down_a_table_is_its_column(self):
+        from docbase.importers.pdf import demote_repeated
+
+        blocks = ["# Inventory", "### **Hardware**", "one", "### **Hardware**",
+                  "two", "### **Hardware**", "three", "### **Software**", "four"]
+        self.assertEqual(demote_repeated(blocks),
+                         ["# Inventory", "**Hardware**", "one", "**Hardware**",
+                          "two", "**Hardware**", "three", "### **Software**", "four"])
+
     def test_a_declared_title_beats_the_first_heading(self):
         """A cover page may carry a withdrawal banner, or split the real title
         across three lines that each become a heading."""
@@ -2166,6 +2223,23 @@ class TestFurnitureIsNotAFigure(BaseCase):
         from docbase.importers import images
         self.assertIsNone(images.shape(b"\x00\x00\x00\x0cjP  \r\n\x87\n"))
         self.assertTrue(images.is_a_figure(b"\x00\x00\x00\x0cjP  \r\n\x87\n"))
+
+    def test_a_picture_drawn_at_icon_size_is_not_a_figure(self):
+        """A wiki export opens with the author's photograph, drawn at 18
+        points beside their name. Its file is as large as a screenshot's, so
+        it was kept — decoration, and a stranger's face, in every base."""
+        from types import SimpleNamespace
+        from docbase.importers import pdf
+        photo = TestPicturesThatTravelWithThePage._png(256, 256)
+        shot = TestPicturesThatTravelWithThePage._png(320, 180)
+        reader = SimpleNamespace(pages=[SimpleNamespace(images=[
+            SimpleNamespace(name="X7.png", data=photo),
+            SimpleNamespace(name="X39.png", data=shot)])])
+        drawn = {1: {"X7": (18.0, 18.0), "X39": (194.0, 109.0)}}
+        out = os.path.join(self.root, "assets")
+
+        found = pdf.extract_images(reader, out, "page", drawn=drawn)
+        self.assertEqual(found, {1: ["kb/assets/page/p01-2.png"]})
 
 
 class TestSpaceExport(BaseCase):

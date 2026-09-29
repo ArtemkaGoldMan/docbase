@@ -200,7 +200,13 @@ def body_size(pages):
     return max(sizes.items(), key=lambda item: item[1])[0]
 
 
-def heading_prefix(words, body=10.0):
+def heading_prefix(words, body=10.0, alone=True):
+    """The markdown heading marker for a line, or "" for body text.
+
+    ``alone`` says the line stands by itself: the line above does not run on
+    into it, and it does not run on into the line below. Only such a line can
+    be a heading by weight alone.
+    """
     size = max(w["size"] for w in words)
     plain = " ".join(w["text"] for w in words)
     if any("Italic" in w["fontname"] for w in words):
@@ -217,10 +223,80 @@ def heading_prefix(words, body=10.0):
     # Size alone misses whole families of documents. Technical reports and
     # anything written in Word mark sections with bold at body size, so a
     # short, wholly bold line that does not read as a sentence is a heading
-    # even though it is no larger than the text around it.
-    if bold and 3 < len(plain) <= 90 and not plain.rstrip().endswith((".", ":", ";", ",")):
+    # even though it is no larger than the text around it — provided it stands
+    # alone. Wiki exports set whole paragraphs in bold, and every line of one
+    # is short, wholly bold and unpunctuated where it wraps.
+    # Table cells stand alone as well, so a number or the tail of a wrapped
+    # cell ("12,5", "of the year") is not a heading either.
+    letters = [c for c in plain if c.isalpha()]
+    if (alone and bold and 3 < len(plain) <= 90 and letters
+            and not letters[0].islower()
+            and not plain.rstrip().endswith((".", ":", ";", ","))):
         return "### "
     return ""
+
+
+#: A heading repeated this often is a table's column value — the category of
+#: every row — not the start of a section.
+REPEATED_HEADING = 3
+
+
+def demote_repeated(blocks):
+    """Turn a "### " heading that recurs down the document back into text."""
+    counts = {}
+    for block in blocks:
+        if block.startswith("### "):
+            counts[block] = counts.get(block, 0) + 1
+    return [block[4:] if counts.get(block, 0) >= REPEATED_HEADING else block
+            for block in blocks]
+
+
+def runs_on(line, following, right):
+    """Whether ``line`` was broken by the margin rather than by its writer.
+
+    A line wraps when the next line's first word would not have fitted after
+    it. If it would have fitted, the break was deliberate: the end of a
+    heading, a label or a paragraph.
+    """
+    if not following or line[-1]["text"].endswith((".", "!", "?")):
+        return False              # a sentence that happened to end at the margin
+    first = following[0]
+    space = 0.25 * first["size"]
+    return max(w["x1"] for w in line) + space + (first["x1"] - first["x0"]) >= right - 1
+
+
+def paragraphs(lines, body):
+    """The lines of one block -> headings and paragraphs, as markdown."""
+    right = max((w["x1"] for line in lines for w in line), default=0)
+    out, rows = [], []
+    for line in lines:
+        text = render_line(line).strip()
+        plain = re.sub(r"[*\[\]]|\(https?://[^)]*\)", "", text).strip()
+        if plain and not RE_PRINT_HEADER.match(plain) and not RE_PAGE_NUM.match(plain):
+            rows.append((line, text))
+
+    prev_bottom, prev_size, open_heading = None, 10.0, ""
+    for i, (line, text) in enumerate(rows):
+        top = min(w["top"] for w in line)
+        gap = (top - prev_bottom) if prev_bottom is not None else 999
+        new_para = gap > prev_size * PARA_GAP
+        following = rows[i + 1][0] if i + 1 < len(rows) else None
+        before = rows[i - 1][0] if i else None
+        alone = (not (before and runs_on(before, line, right))
+                 and not runs_on(line, following, right))
+        prefix = heading_prefix(line, body, alone=alone)
+
+        if prefix and prefix == open_heading and not new_para:
+            out[-1] += " " + text          # a large heading wrapped in two
+        elif prefix or new_para or open_heading or not out:
+            out.append(prefix + text)      # text under a heading is not in it
+        else:
+            out[-1] += " " + text
+        open_heading = prefix
+
+        prev_bottom = max(w["bottom"] for w in line)
+        prev_size = max(w["size"] for w in line)
+    return out
 
 
 #: How wide a gap has to be, in points, before it separates two words.
@@ -235,7 +311,25 @@ def heading_prefix(words, body=10.0):
 WORD_GAP = 2
 
 
-def extract_images(reader, out_dir, slug, url_prefix="kb/assets"):
+#: Smallest size, in points, a picture is drawn at to be a figure — about two
+#: lines of text. A wiki export opens with the author's photograph drawn at
+#: 18 points beside their name: decoration, and personal data besides, yet
+#: its file is as large as a small screenshot's.
+MIN_DRAWN = 48
+
+
+def drawn_sizes(pdf):
+    """page number -> {image name: (width, height) as drawn, in points}."""
+    out = {}
+    for page_no, page in enumerate(pdf.pages, 1):
+        for image in page.images:
+            name = str(image.get("name") or "").lstrip("/")
+            if name:
+                out.setdefault(page_no, {})[name] = (image["width"], image["height"])
+    return out
+
+
+def extract_images(reader, out_dir, slug, url_prefix="kb/assets", drawn=None):
     """Meaningful images -> files plus markers. Icons and repeated decoration
     (a logo on every page) are filtered out by size and content hash."""
     if out_dir is None:
@@ -246,6 +340,10 @@ def extract_images(reader, out_dir, slug, url_prefix="kb/assets"):
             data = image.data
             if len(data) < MIN_IMG_BYTES:
                 continue                                  # icon
+            size = (drawn or {}).get(page_no, {}).get(
+                os.path.splitext(image.name)[0].lstrip("/"))
+            if size and max(size) < MIN_DRAWN:
+                continue                                  # drawn as an icon
             digest = hashlib.sha1(data).hexdigest()
             if digest in seen:
                 continue                                  # decoration, seen before
@@ -267,9 +365,10 @@ def extract_images(reader, out_dir, slug, url_prefix="kb/assets"):
 def convert(pdf_path, assets_dir=None, slug="", url_prefix="kb/assets"):
     reader = PdfReader(pdf_path)
     blocks, all_links = [], {}
-    images = extract_images(reader, assets_dir, slug, url_prefix)
 
     with pdfplumber.open(pdf_path) as pdf:
+        images = extract_images(reader, assets_dir, slug, url_prefix,
+                                drawn=drawn_sizes(pdf))
         body = body_size(pdf.pages)
         for page_no, page in enumerate(pdf.pages):
             height = float(reader.pages[page_no].mediabox.height)
@@ -291,25 +390,7 @@ def convert(pdf_path, assets_dir=None, slug="", url_prefix="kb/assets"):
                 words.append(w)
 
             for block in xy_cut(words):
-                prev_bottom, prev_size = None, 10.0
-                for line in group_lines(block):
-                    text = render_line(line).strip()
-                    plain = re.sub(r"[*\[\]]|\(https?://[^)]*\)", "", text).strip()
-                    if not plain or RE_PRINT_HEADER.match(plain) or RE_PAGE_NUM.match(plain):
-                        continue
-
-                    top = min(w["top"] for w in line)
-                    gap = (top - prev_bottom) if prev_bottom is not None else 999
-                    new_para = gap > prev_size * PARA_GAP
-                    prefix = heading_prefix(line, body)
-
-                    if prefix or new_para or not blocks:
-                        blocks.append(prefix + text)
-                    else:
-                        blocks[-1] += " " + text
-
-                    prev_bottom = max(w["bottom"] for w in line)
-                    prev_size = max(w["size"] for w in line)
+                blocks.extend(paragraphs(group_lines(block), body))
 
             for path in images.get(page_no + 1, []):
                 blocks.append(
@@ -317,7 +398,7 @@ def convert(pdf_path, assets_dir=None, slug="", url_prefix="kb/assets"):
                     f"<!-- This image carries content that is not in the text. "
                     f"Open the file only if the answer is not nearby. -->")
 
-    return blocks, all_links
+    return demote_repeated(blocks), all_links
 
 
 def build_markdown(pdf_path, blocks, links, is_internal=lambda url: False):
