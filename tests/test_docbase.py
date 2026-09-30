@@ -85,6 +85,26 @@ class TestImport(BaseCase):
         self.assertFalse(os.path.exists(os.path.join(self.root, "whatever.html")))
         self.assertTrue(os.listdir(self.cfg.layout.path("originals")))
 
+    def test_the_agents_own_files_stay_where_they_are(self):
+        """Markdown and text are document formats. The first sync took the
+        agent's own CLAUDE.md for a page, moved it out of the folder where the
+        agent looks for it, and indexed its instructions as documentation."""
+        for name in ("CLAUDE.md", "README.md", "AGENTS.md", "LICENSE.txt",
+                     "START HERE.txt"):
+            self.drop(name, f"# {name}\n\nNot a document.\n")
+        self.drop("travel.md", "# Travel booking\n\nBook five days ahead.\n")
+        path = os.path.join(self.root, config_module.CONFIG_NAME)
+        data = json.load(open(path, encoding="utf-8"))
+        data["importer"]["keep"] = ["start here.txt"]
+        json.dump(data, open(path, "w", encoding="utf-8"))
+        self.cfg = config_module.load(self.root)
+
+        self.sync(quiet=True)
+        self.assertEqual(self.text_files(), ["travel-booking.md"])
+        for name in ("CLAUDE.md", "README.md", "AGENTS.md", "LICENSE.txt",
+                     "START HERE.txt"):
+            self.assertTrue(os.path.isfile(os.path.join(self.root, name)), name)
+
     def test_same_content_under_another_name_is_recognised(self):
         body = page(1, "Expense reports", "Receipts must be PDF.")
         self.drop("first.html", body)

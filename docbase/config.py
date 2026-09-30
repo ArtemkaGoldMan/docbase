@@ -66,6 +66,9 @@ class Importer:
     #: Hosts treated as internal — links to them can resolve to local files.
     internal_hosts: tuple = ()
     min_image_bytes: int = 8_000
+    #: Files in the base folder that are not documents to import, on top of
+    #: the ones every base keeps (see sync.KEPT_IN_ROOT).
+    keep: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -166,6 +169,7 @@ def load(root=None):
     imp = Importer(
         internal_hosts=tuple(imp_raw.get("internal_hosts", ())),
         min_image_bytes=int(imp_raw.get("min_image_bytes", 8_000)),
+        keep=tuple(imp_raw.get("keep", ())),
     )
 
     language = raw.get("language", "en")

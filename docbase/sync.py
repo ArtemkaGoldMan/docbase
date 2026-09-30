@@ -17,6 +17,7 @@ import re
 import shutil
 import sys
 import time
+import unicodedata
 import zipfile
 
 from . import frontmatter
@@ -37,6 +38,22 @@ LOG_LIMIT = 12
 DOC_EXTENSIONS = (".pdf", ".html", ".htm", ".doc", ".docx", ".mhtml", ".mht",
                   ".md", ".markdown", ".txt", ".rst", ".text")
 ARCHIVE_EXTENSIONS = (".zip",)
+
+#: Files the base folder holds for the agent or the repository, never for
+#: import. Markdown and text are document formats, and the first sync took
+#: the agent's own CLAUDE.md for a page, moved it out of sight and indexed it.
+KEPT_IN_ROOT = frozenset({
+    "claude.md", "claude.local.md", "agents.md", "gemini.md", "copilot.md",
+    "readme", "readme.md", "readme.txt", "readme.rst",
+    "license", "license.md", "license.txt", "changelog.md", "contributing.md",
+    "requirements.txt"})
+
+
+def kept_in_root(cfg, name):
+    # macOS may hand back "Й" decomposed while a config spells it composed.
+    def same(text):
+        return unicodedata.normalize("NFC", text).lower()
+    return same(name) in KEPT_IN_ROOT or same(name) in {same(k) for k in cfg.importer.keep}
 
 #: A file this large that converts to a couple of words did not convert: it is
 #: a login or error page saved instead of the real one, a scan with no text
@@ -113,7 +130,8 @@ def collect_dropped(cfg, log):
     unpack_archives(cfg, log)
 
     dropped = [n for n in sorted(os.listdir(layout.root))
-               if n.lower().endswith(DOC_EXTENSIONS)]
+               if n.lower().endswith(DOC_EXTENSIONS) and not kept_in_root(cfg, n)
+               and os.path.isfile(os.path.join(layout.root, n))]
     if not dropped:
         return                       # the common case reads nothing at all
 
