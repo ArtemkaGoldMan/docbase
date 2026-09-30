@@ -85,6 +85,26 @@ class TestImport(BaseCase):
         self.assertFalse(os.path.exists(os.path.join(self.root, "whatever.html")))
         self.assertTrue(os.listdir(self.cfg.layout.path("originals")))
 
+    def test_a_pdf_the_html_replaces_is_mentioned_once(self):
+        """Said on every run, it made the quiet hook print the whole report
+        before every message."""
+        self.drop("a.html", page(7, "Travel booking", "Book five days ahead."))
+        self.sync(quiet=True)
+        originals = self.cfg.layout.path("originals")
+        with open(os.path.join(originals, "travel.pdf"), "wb") as handle:
+            handle.write(b"%PDF-1.4 stand-in")
+        manifest_path = self.cfg.layout.path("manifest")
+        manifest = sync_module.read_manifest(manifest_path)
+        manifest["travel.pdf"] = {"sha1": "x", "stat": sync_module.quick_stat(
+            os.path.join(originals, "travel.pdf")), "out": "travel-booking.md",
+            "page_id": "7"}
+        sync_module.write_manifest(manifest_path, manifest)
+
+        first = self.sync(quiet=True)
+        second = self.sync(quiet=True)
+        self.assertTrue(any("already available as HTML" in l for l in first["log"]))
+        self.assertEqual(second["log"], [])
+
     def test_the_agents_own_files_stay_where_they_are(self):
         """Markdown and text are document formats. The first sync took the
         agent's own CLAUDE.md for a page, moved it out of the folder where the

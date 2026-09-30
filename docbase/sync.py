@@ -570,8 +570,12 @@ def run(cfg=None, quiet=False, force=False):
 
         if (name.lower().endswith(".pdf") and known
                 and known.get("page_id") in rich_pages):
-            log.append(say("{name} skipped: this page is already available as HTML",
-                           name=name))
+            # Said once. Said on every run, it made the hook report the whole
+            # base before every message the person wrote.
+            if not known.get("superseded"):
+                log.append(say("{name} skipped: this page is already available "
+                               "as HTML", name=name))
+                known["superseded"] = True
             skipped += 1
             continue
 
