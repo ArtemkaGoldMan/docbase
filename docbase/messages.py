@@ -252,6 +252,8 @@ UK = {
         "переписування, або документ змінився. Виправ картку за джерелом.",
     "\nEvery number and quotation is present in its source.":
         "\nКожне число й цитата є у своєму джерелі.",
+    "\nIn other documents of the base — add them to the card's sources:":
+        "\nЄ в інших документах бази — додай їх у джерела картки:",
     "number": "число",
     "quote": "цитата",
 

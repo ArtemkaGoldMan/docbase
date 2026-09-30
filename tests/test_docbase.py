@@ -1806,6 +1806,55 @@ class TestMapIsProgressive(BaseCase):
         self.assertNotIn("document-2.md", answer)
 
 
+class TestVerifyCardsAsTheyAreWritten(TestVerify):
+    """Cards written through months of work cite their lines, draw on several
+    documents, and quote prices. Put through the check, one real base of
+    cards came back with hundreds of complaints, most of them about the card
+    being right."""
+
+    OTHER = ("# Expense reports\n\nA taxi to the airport costs at most 2480 "
+             "UAH and needs a receipt.\n")
+
+    def _both(self):
+        self._load()
+        self.drop("expenses.md", self.OTHER)
+        self.sync(quiet=True)
+
+    def test_a_line_it_cites_is_not_a_claim(self):
+        self._load()
+        self._card("Five working days ahead (`:3`); the fee is 150 EUR "
+                   "(`travel-booking.md:5`, `:5`–`:7`).\n")
+        code, output = self._run()
+        self.assertEqual(code, 0, output)
+
+    def test_a_card_is_held_against_every_document_it_cites(self):
+        self._both()
+        self._card("Cancelling costs 150 EUR; the airport taxi is at most 2480 "
+                   "UAH (see expense-reports.md).\n")
+        code, output = self._run()
+        self.assertEqual(code, 0, output)
+
+    def test_a_number_of_four_digits_is_read_whole(self):
+        """4096 read as 409 and 6: a price was never confirmed."""
+        from docbase.verify import RE_ANY_NUMBER
+        self.assertEqual(RE_ANY_NUMBER.findall("00042, 2480 UAH, 1 000, 2,5"),
+                         ["00042", "2480", "1 000", "2,5"])
+
+    def test_a_claim_from_a_document_it_does_not_name_is_a_missing_reference(self):
+        self._both()
+        self._card("The airport taxi is at most 2480 UAH.\n")
+        code, output = self._run()
+        self.assertEqual(code, 0, output)
+        self.assertIn("travel/ask.md: number 2480 UAH  → expense-reports.md", output)
+
+    def test_a_number_that_is_nowhere_is_still_wrong(self):
+        self._both()
+        self._card("The airport taxi is at most 1450 UAH.\n")
+        code, output = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("1450", output)
+
+
 class TestVerifyOnRealCards(BaseCase):
     """What the check was worth when a real card was put through it.
 

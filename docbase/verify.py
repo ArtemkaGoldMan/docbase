@@ -31,12 +31,28 @@ from . import languages
 
 RE_FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 RE_SOURCE = re.compile(r"source:\s*\S*?([\w.-]+\.md)")
-RE_NUMBER = re.compile(r"(?<![\w.])(\d[\d\s]*(?:[.,]\d+)?)\s*(%|[A-Za-z]{2,12})?")
+#: A number a card asserts. A space joins digits only into thousands, before
+#: a group of exactly three: "1 000" is one number, "23:59 15 May" is two.
+RE_NUMBER = re.compile(r"(?<![\w.])(\d{1,3}(?:[ \u00a0]\d{3})+(?!\d)(?:[.,]\d+)?"
+                       r"|\d+(?:[.,]\d+)?)\s*(%|[A-Za-z]{2,12})?")
 RE_QUOTED = re.compile(r"`([^`\n]{4,80})`|«([^»\n]{4,80})»|\"([^\"\n]{4,80})\"")
 
-#: Every number written in the source.
+#: A reference to a document, or to a line of one — `refunds.md:120`,
+#: (`:48`), `:180`–`:188`, kb/text/refunds.md. It says where a claim comes
+#: from and is not a claim: read as numbers, a card that cites its lines was
+#: reported wrong on every line it cited. A time, 03:30, has a digit before
+#: its colon and is left alone.
+RE_POINTER = re.compile(
+    r"`?(?:[\w./-]+\.md(?::\d+)?|(?<![\w]):\d+)"
+    r"(?:`?\s*[–-]\s*`?:?\d+)?`?")
+RE_DOCUMENT = re.compile(r"([\w.-]+\.md)\b")
+
+#: Every number written in the source: grouped in thousands (1 000, 1,000),
+#: or a plain run of digits with its decimals. The grouped form once matched
+#: a lone digit group too, and cut every longer number at three digits —
+#: 4096 read as 409 and 6, so a card quoting a price was never confirmed.
 RE_ANY_NUMBER = re.compile(
-    r"\d{1,3}(?:[ .,]\d{3})*(?:[.,]\d+)?|\d+")
+    r"\d{1,3}(?:[ .,]\d{3})+(?:[.,]\d+)?(?!\d)|\d+(?:[.,]\d+)?")
 
 #: Numbers that are structure rather than content.
 SKIP_NUMBER_CONTEXT = re.compile(r"^\s*(\d+)[.)]\s")
@@ -146,17 +162,46 @@ def _quotes(text):
     return out
 
 
+def _whole_base(text_dir, spelled):
+    """-> (prepared text of every document, [(name, its numbers, its text)])."""
+    documents = []
+    for name in sorted(os.listdir(text_dir)):
+        if name.endswith(".md"):
+            text = open(os.path.join(text_dir, name), encoding="utf-8").read()
+            numbers = {form for found in RE_ANY_NUMBER.findall(text)
+                       for form in _forms(found)}
+            documents.append((name, numbers, _normalise(text)))
+    whole = "\n\n".join(open(os.path.join(text_dir, name), encoding="utf-8").read()
+                         for name, _n, _t in documents)
+    return prepare(whole, spelled), documents
+
+
+def _which_document(problem, documents):
+    kind, claim, _line = problem
+    for name, numbers, text in documents:
+        if kind == "number" and _forms(claim.split()[0]) & numbers:
+            return name
+        if kind == "quote" and _normalise(claim) in text:
+            return name
+    return "?"
+
+
 def _card_body(text):
     match = RE_FRONTMATTER.match(text)
     return text[match.end():] if match else text
 
 
-def check_card(card_path, source_text, spelled=None, stopwords=frozenset()):
+def prepare(source_text, spelled=None):
+    """What a card is checked against, worked out once."""
+    return _normalise(source_text), number_contexts(source_text, spelled)
+
+
+def check_card(card_path, source_text, spelled=None, stopwords=frozenset(),
+               prepared=None):
     """-> (confirmed, [(kind, claim, line)]) for one card."""
     raw = open(card_path, encoding="utf-8").read()
-    body = _card_body(raw)
-    haystack = _normalise(source_text)
-    contexts = number_contexts(source_text, spelled)
+    body = RE_POINTER.sub(" ", _card_body(raw))
+    haystack, contexts = prepared or prepare(source_text, spelled)
 
     confirmed, problems = 0, []
 
@@ -196,7 +241,8 @@ def report(cfg=None, verbose=False):
 
     spelled = languages.numbers(cfg.languages)
     total_cards = total_confirmed = 0
-    findings, orphans, stale, cleared = [], [], [], []
+    findings, orphans, stale, cleared, elsewhere = [], [], [], [], []
+    whole_base = None           # prepared only when some card needs it
     passed_by_topic = {}
 
     for topic in sorted(os.listdir(cards_dir)):
@@ -214,23 +260,42 @@ def report(cfg=None, verbose=False):
             head = RE_FRONTMATTER.match(raw)
             meta = head.group(1) if head else ""
 
-            source_name = None
+            # A card may be built from several documents, and says so as it
+            # cites them. Its claims are held against all of them.
+            sources = []
             declared_id = frontmatter.read_id(meta)
             if declared_id and declared_id in by_id:
-                source_name = by_id[declared_id]
+                sources.append(by_id[declared_id])
             else:
                 named = RE_SOURCE.search(meta)
                 if named and os.path.isfile(os.path.join(text_dir, named.group(1))):
-                    source_name = named.group(1)
+                    sources.append(named.group(1))
+            for name in RE_DOCUMENT.findall(raw[head.end():] if head else raw):
+                if name not in sources and os.path.isfile(os.path.join(text_dir, name)):
+                    sources.append(name)
 
-            if not source_name:
+            if not sources:
                 orphans.append(f"{topic}/{card}")
                 continue
 
-            source_text = open(os.path.join(text_dir, source_name),
-                               encoding="utf-8").read()
+            source_text = "\n\n".join(
+                open(os.path.join(text_dir, name), encoding="utf-8").read()
+                for name in sources)
+            source_name = ", ".join(sources)
             confirmed, problems = check_card(
                 path, source_text, spelled, cfg.stopwords)
+            if problems:
+                # A claim missing from the card's sources may still be in the
+                # base: the card took it from a document it does not name.
+                # That is a gap in its references, not a wrong number.
+                if whole_base is None:
+                    whole_base = _whole_base(text_dir, spelled)
+                _found, remaining = check_card(path, "", spelled, cfg.stopwords,
+                                               prepared=whole_base[0])
+                for problem in [p for p in problems if p not in remaining]:
+                    elsewhere.append((f"{topic}/{card}", problem,
+                                      _which_document(problem, whole_base[1])))
+                problems = [p for p in problems if p in remaining]
             total_cards += 1
             total_confirmed += confirmed
             if problems:
@@ -285,6 +350,11 @@ def report(cfg=None, verbose=False):
                           count=len(problems) - 8))
         print(say("\nA number or quotation that is not in the document is either a"))
         print(say("transcription error or drift. Fix the card against its source."))
+
+    if elsewhere:
+        print(say("\nIn other documents of the base — add them to the card's sources:"))
+        for card, (kind, claim, _line), document in elsewhere:
+            print(f"  {card}: {say(kind)} {claim}  → {document}")
 
     if not (findings or orphans):
         print(say("\nEvery number and quotation is present in its source."))
