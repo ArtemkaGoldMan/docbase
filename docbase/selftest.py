@@ -12,7 +12,15 @@ Three layers, each catching a failure the others cannot see:
   shows, cut the way it cuts, or a card holds it. One that does neither is
   dangerous: the agent will answer it from something else.
 
-Cases live in ``kb/tests/*.json``, written by hand or by an agent::
+Cases live in ``kb/tests/``, written by hand or by an agent. The plain
+format is a file named after its document, ``kb/tests/<document>.md``::
+
+    # comments start with a hash
+    ? how early do I book a trip       <- a working question, as it is asked
+    = five working days                <- a literal piece of the right answer
+    ! five working days                <- a fact that must be in the document
+
+The same in JSON, ``kb/tests/<name>.json``, when a case needs more::
 
     {
       "document": "travel-booking.md",
@@ -25,6 +33,10 @@ Cases live in ``kb/tests/*.json``, written by hand or by an agent::
 
 ``answer`` may be a list; every part must be there. ``absent`` marks a
 question the base cannot answer: the right result is a doubt, not an answer.
+
+A question whose answer is neither shown nor in a card is *missing*; if the
+search was sure of itself while missing it, it is *dangerous* — nothing will
+make the agent look again. A doubted miss is asked again by the skill.
 
     docbase selftest            all three layers
     docbase selftest -v         and every case
@@ -67,6 +79,11 @@ def _html_passages(path):
     for selector in html.JUNK_SELECTORS:
         for node in soup.select(selector):
             node.decompose()
+    # The importer writes a picture as "(alt)" — a wiki's emoji are pictures —
+    # so the passage has to say the same, or a whole message looks lost.
+    for image in soup.find_all("img"):
+        alt = (image.get("alt") or "").strip()
+        image.replace_with(f" ({alt}) " if alt else " ")
     found = []
     for node in soup.find_all(["em", "i"]) + soup.select('[class*="copy"]'):
         found.append(node.get_text(" ", strip=True))
@@ -133,49 +150,98 @@ def missing_passages(passages_found, converted):
     return out
 
 
+#: A macro the export did not expand leaves its template variable behind.
+RE_UNEXPANDED = re.compile(r"\$body\b")
+def notes_on(text):
+    """What looks wrong with a converted document, whatever its original."""
+    notes = []
+    stubs = len(RE_UNEXPANDED.findall(text))
+    if stubs:
+        notes.append(say("{count} unexpanded [[count:macro|macros]] ($body) — the "
+                         "export itself lost them", count=stubs))
+    return notes
+
+
 def check_integrity(cfg):
-    """-> [(original, converted, passages checked, [passages missing])]."""
+    """-> {document: (original, passages checked, [passages missing])}.
+
+    One original per converted document. When a page came as both PDF and
+    HTML the base reads the HTML, so that is the one to hold it against —
+    checking the PDF would pass while the text the agent reads lost things.
+    """
     from .sync import read_manifest
     layout = cfg.layout
-    manifest = read_manifest(layout.path("manifest"))
-    results = []
-    for name, entry in sorted(manifest.items()):
-        out = entry.get("out")
-        source = os.path.join(layout.path("originals"), name)
-        converted = os.path.join(layout.path("text"), out or "")
-        if not out or not os.path.isfile(source) or not os.path.isfile(converted):
+    by_document = {}
+    for name, entry in read_manifest(layout.path("manifest")).items():
+        if entry.get("out"):
+            by_document.setdefault(entry["out"], []).append(name)
+    results = {}
+    for document, names in sorted(by_document.items()):
+        converted = os.path.join(layout.path("text"), document)
+        if not os.path.isfile(converted):
             continue
+        names.sort(key=lambda n: (not n.lower().endswith(HTML_ORIGINALS), n))
+        source = next((n for n in names
+                       if os.path.isfile(os.path.join(layout.path("originals"), n))), "")
         try:
-            found = passages(source)
+            found = passages(os.path.join(layout.path("originals"), source)) \
+                if source else []
         except Exception:                                  # noqa: BLE001
-            continue        # an original the importer could read is enough
-        if not found:
-            continue
+            found = []          # an original the importer could read is enough
         text = open(converted, encoding="utf-8").read()
-        results.append((name, out, len(found), missing_passages(found, text)))
+        results[document] = (source, len(found), missing_passages(found, text))
     return results
 
 
+HTML_ORIGINALS = (".html", ".htm", ".doc", ".mhtml", ".mht")
+
+
 # ------------------------------------------------------------ cases
+def _parse_plain(path):
+    """kb/tests/<document>.md -> (anchors, questions)."""
+    anchors, questions, question = [], [], None
+    for raw in open(path, encoding="utf-8").read().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        tag, _, rest = line.partition(" ")
+        rest = rest.strip()
+        if tag == "?" and rest:
+            question = rest
+        elif tag == "=" and rest and question:
+            questions.append({"question": question, "answer": rest})
+        elif tag == "!" and rest:
+            anchors.append({"fact": rest})
+    return anchors, questions
+
+
 def load_cases(cfg):
-    """-> [(file, document, anchors, questions)] from kb/tests/."""
+    """-> [{file, document, anchors, questions}] from kb/tests/."""
     folder = os.path.join(cfg.layout.root, TESTS)
     out = []
     if not os.path.isdir(folder):
         return out
     for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        if name.endswith(".md"):
+            anchors, questions = _parse_plain(path)
+            out.append({"file": name, "document": name, "anchors": anchors,
+                        "questions": questions})
+            continue
         if not name.endswith(".json"):
             continue
         try:
-            with open(os.path.join(folder, name), encoding="utf-8") as handle:
+            with open(path, encoding="utf-8") as handle:
                 data = json.load(handle)
         except (OSError, ValueError) as error:
-            out.append((name, "", [], [{"broken": str(error)[:80]}]))
+            out.append({"file": name, "document": "", "anchors": [],
+                        "questions": [{"broken": str(error)[:80]}]})
             continue
         if isinstance(data, list):
             data = {"questions": data}
-        out.append((name, data.get("document", ""), data.get("anchors", []),
-                    data.get("questions", [])))
+        out.append({"file": name, "document": data.get("document", ""),
+                    "anchors": data.get("anchors", []),
+                    "questions": data.get("questions", [])})
     return out
 
 
@@ -203,106 +269,194 @@ def _answers(case):
 
 
 def check_anchors(cfg, cases):
-    """-> [(file, fact, why, where)] for every anchor that is not there."""
+    """-> ([(file, document, fact, why)] for every anchor not there, total)."""
     texts = {name: flat(text) for name, text in _texts(cfg).items()}
     everything = "".join(texts.values())
-    missing = []
-    for file, document, anchors, _questions in cases:
-        for anchor in anchors:
-            fact = anchor.get("fact", "") if isinstance(anchor, dict) else str(anchor)
-            where = (anchor.get("document") if isinstance(anchor, dict) else "") or document
+    missing, total = [], 0
+    for case in cases:
+        for anchor in case["anchors"]:
+            if not isinstance(anchor, dict):
+                anchor = {"fact": str(anchor)}
+            fact = anchor.get("fact", "")
+            where = anchor.get("document") or case["document"]
             haystack = texts.get(where, "") if where else everything
-            if flat(fact) and flat(fact) not in haystack:
-                why = anchor.get("why", "") if isinstance(anchor, dict) else ""
-                missing.append((file, fact, why, where or "*"))
-    return missing, sum(len(c[2]) for c in cases)
+            if not flat(fact):
+                continue
+            total += 1
+            if flat(fact) not in haystack:
+                missing.append((case["file"], where or "*", fact, anchor.get("why", "")))
+    return missing, total
 
 
 def check_questions(cfg, cases):
-    """-> list of (file, question, outcome, doubted) where outcome is one of
-    "search", "card", "dangerous", "honest", "confident", "broken"."""
+    """-> [(file, question, answers, outcome, doubted)]. The outcome is one of
+    search, card, missing (doubted: the skill asks again), dangerous (the
+    search was sure and wrong), honest, confident (a question the base cannot
+    answer, doubted or not) and broken (a test file that does not parse)."""
     from .search import Index, shown_fragments
     index = Index(cfg).build()
     cards = _cards(cfg)
     results = []
-    for file, _document, _anchors, questions in cases:
-        for case in questions:
-            if "broken" in case:
-                results.append((file, case["broken"], "broken", False))
+    for case in cases:
+        for item in case["questions"]:
+            if "broken" in item:
+                results.append((case["file"], item["broken"], [], "broken", False))
                 continue
-            question = case.get("question", "")
+            question = item.get("question", "")
             hits = index.search(question)
             doubted = bool(index.doubts(question, hits))
-            if case.get("absent"):
-                results.append((file, question,
+            if item.get("absent"):
+                results.append((case["file"], question, [],
                                 "honest" if doubted else "confident", doubted))
                 continue
+            answers = _answers(item)
             shown = flat("\n".join(shown_fragments(cfg.search, hits)))
-            wanted = [flat(a) for a in _answers(case) if flat(a)]
+            wanted = [flat(a) for a in answers if flat(a)]
             if wanted and all(w in shown for w in wanted):
                 outcome = "search"
             elif wanted and all(w in cards for w in wanted):
                 outcome = "card"
             else:
-                outcome = "dangerous"
-            results.append((file, question, outcome, doubted))
+                outcome = "missing" if doubted else "dangerous"
+            results.append((case["file"], question, answers, outcome, doubted))
     return results
 
 
 # ------------------------------------------------------------ report
+STATE = "kb/.selftest.json"
+BAD = ("missing", "dangerous", "confident", "broken")
+
+
+def _load_state(cfg):
+    try:
+        with open(os.path.join(cfg.layout.root, STATE), encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_state(cfg, state):
+    try:
+        with open(os.path.join(cfg.layout.root, STATE), "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False, indent=1, sort_keys=True)
+    except OSError:
+        pass
+
+
 def report(cfg=None, verbose=False, quick=False):
     cfg = cfg or config_module.load()
     problems = 0
-
-    if not quick:
-        integrity = check_integrity(cfg)
-        checked = sum(r[2] for r in integrity)
-        lost = sum(len(r[3]) for r in integrity)
-        print(say("Integrity: {documents} [[documents:document|documents]], "
-                  "{checked} set-apart [[checked:passage|passages]], {lost} missing",
-                  documents=len(integrity), checked=checked, lost=lost))
-        for name, out, count, missing in integrity:
-            if missing:
-                problems += len(missing)
-                print(say("  ! {name} -> {out}: {lost} of {count} missing",
-                          name=name, out=out, lost=len(missing), count=count))
-                for passage in missing[:5 if not verbose else None]:
-                    print(f"      «{passage[:110]}»")
-
+    documents = sorted(_texts(cfg))
     cases = load_cases(cfg)
-    if not cases:
-        print(say("No cases in {folder} yet. Add some: see docbase/selftest.py "
-                  "for the format.", folder=TESTS))
-        return 1 if problems else 0
+    previous = _load_state(cfg)
+    state = {"questions": {}, "integrity": {}}
+    print(say("Documents: {count}", count=len(documents)))
 
-    missing, total = check_anchors(cfg, cases)
-    print(say("Anchors: {ok} of {total} in place", ok=total - len(missing), total=total))
-    for file, fact, why, where in missing:
+    integrity = {} if quick else check_integrity(cfg)
+    missing_anchors, total_anchors = check_anchors(cfg, cases)
+    anchors_of, questions_of = {}, {}
+    for case in cases:
+        anchors_of[case["document"]] = anchors_of.get(case["document"], 0) + len(case["anchors"])
+        questions_of[case["document"]] = (questions_of.get(case["document"], 0)
+                                          + len(case["questions"]))
+
+    print()
+    print(f"{say('document'):<44}{say('templates'):>12}{say('anchors'):>10}"
+          f"{say('questions'):>9}")
+    print("-" * 75)
+    texts = _texts(cfg)
+    for document in documents:
+        checked, lost = 0, []
+        if document in integrity:
+            _source, checked, lost = integrity[document]
+            state["integrity"][document] = len(lost)
+        templates = "—" if not checked else (
+            say("{count} ok", count=checked) if not lost else
+            say("LOST {lost}/{count}", lost=len(lost), count=checked))
+        mine = [m for m in missing_anchors if m[1] == document]
+        count = anchors_of.get(document, 0)
+        anchors = "—" if not count else (
+            say("{count} ok", count=count) if not mine else
+            say("MISSING {lost}/{count}", lost=len(mine), count=count))
+        print(f"{document[:42]:<44}{templates:>12}{anchors:>10}"
+              f"{questions_of.get(document, 0) or '—':>9}")
+        for note in notes_on(texts[document]):
+            print(f"   ! {note}")
+            problems += 1
+        for passage in lost[:5 if not verbose else None]:
+            print(say("   lost: «{text}»", text=passage[:100]))
+        problems += len(lost)
+        for _file, _where, fact, why in mine:
+            print(say("   anchor missing: «{fact}»{why}", fact=fact[:70],
+                      why=f" — {why}" if why else ""))
+            problems += 1
+    others = [m for m in missing_anchors if m[1] not in documents]
+    for file, where, fact, why in others:
+        print(say("   anchor missing: «{fact}»{why}", fact=fact[:70],
+                  why=f" — {why}" if why else "") + f"   [{file} → {where}]")
         problems += 1
-        print(say("  ! {fact} — not in {where} ({file}){why}", fact=f"«{fact}»",
-                  where=where, file=file, why=f": {why}" if why else ""))
 
-    results = check_questions(cfg, cases)
-    counted = {}
-    for _file, _question, outcome, _doubted in results:
-        counted[outcome] = counted.get(outcome, 0) + 1
-    answerable = sum(counted.get(k, 0) for k in ("search", "card", "dangerous"))
-    print(say("Questions: {total} — search finds {search}, cards cover {card}, "
-              "dangerous {dangerous}", total=answerable,
-              search=counted.get("search", 0), card=counted.get("card", 0),
-              dangerous=counted.get("dangerous", 0)))
-    absent = counted.get("honest", 0) + counted.get("confident", 0)
-    if absent:
-        print(say("Not in the base: {total} — doubted honestly {honest}, answered "
-                  "anyway {confident}", total=absent, honest=counted.get("honest", 0),
-                  confident=counted.get("confident", 0)))
-    labels = {"search": say("search"), "card": say("card"),
-              "dangerous": say("DANGEROUS"), "honest": say("doubted"),
-              "confident": say("ANSWERED"), "broken": say("BROKEN FILE")}
-    for file, question, outcome, doubted in results:
-        bad = outcome in ("dangerous", "confident", "broken")
-        problems += bad
-        if bad or verbose:
-            mark = say(" (with doubt)") if doubted and outcome == "search" else ""
-            print(f"  {labels[outcome]:<11} {question[:80]}{mark}   [{file}]")
+    untested = [d for d in documents if not anchors_of.get(d) and not questions_of.get(d)]
+    if untested and cases:
+        print(say("\nWithout a single test ({count}): {names}", count=len(untested),
+                  names=", ".join(d[:-3] for d in untested)))
+    if not cases:
+        print(say("\nNo cases in {folder} yet. Add some: see docbase/selftest.py "
+                  "for the format.", folder=TESTS))
+
+    results = check_questions(cfg, cases) if cases else []
+    if results:
+        counted = {}
+        for result in results:
+            counted[result[3]] = counted.get(result[3], 0) + 1
+        answerable = sum(counted.get(k, 0)
+                         for k in ("search", "card", "missing", "dangerous"))
+        print("\n" + "-" * 75)
+        print(say("Questions: {total} — search finds {search}, cards cover {card}, "
+                  "missing {missing}, dangerous {dangerous}", total=answerable,
+                  search=counted.get("search", 0), card=counted.get("card", 0),
+                  missing=counted.get("missing", 0),
+                  dangerous=counted.get("dangerous", 0)))
+        absent = counted.get("honest", 0) + counted.get("confident", 0)
+        if absent:
+            print(say("Not in the base: {total} — doubted honestly {honest}, answered "
+                      "anyway {confident}", total=absent,
+                      honest=counted.get("honest", 0),
+                      confident=counted.get("confident", 0)))
+        labels = {"search": say("search"), "card": say("card"),
+                  "missing": say("missing"), "dangerous": say("DANGEROUS"),
+                  "honest": say("doubted"), "confident": say("ANSWERED"),
+                  "broken": say("BROKEN FILE")}
+        for file, question, answers, outcome, doubted in results:
+            state["questions"][question] = outcome
+            bad = outcome in BAD
+            problems += bad
+            if bad or verbose:
+                print(f"  {labels[outcome]:<11} {question[:70]}   [{file}]")
+                if bad and answers:
+                    print(say("              looked for «{answer}»",
+                              answer="», «".join(a[:50] for a in answers)))
+
+    changes = []
+    for question, outcome in state["questions"].items():
+        was = previous.get("questions", {}).get(question)
+        if was and was != outcome:
+            changes.append(say("  {question}: was {was}, now {now}",
+                               question=question[:60], was=say(was), now=say(outcome)))
+    for document, lost in state["integrity"].items():
+        was = previous.get("integrity", {}).get(document)
+        if was is not None and was != lost:
+            changes.append(say("  {document}: lost templates {was} → {now}",
+                               document=document, was=was, now=lost))
+    if changes:
+        print("\n" + say("Since the last run:"))
+        for line in changes:
+            print(line)
+    if quick:
+        state["integrity"] = previous.get("integrity", {})
+    _save_state(cfg, state)
+
+    print("\n" + "-" * 75)
+    print(say("All clear.") if not problems
+          else say("Problems: {count}", count=problems))
     return 1 if problems else 0

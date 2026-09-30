@@ -3147,35 +3147,15 @@ class TestSelfTest(BaseCase):
     in a card."""
 
     MACRO = ('<div class="copy-text"><em>Your parcel leaves the warehouse '
-             'tomorrow morning.</em></div>')
+             'tomorrow morning <img alt=":truck:" src="x.png"> as agreed.</em></div>')
 
-    def _cases(self, data):
+    def _write(self, name, text):
         folder = os.path.join(self.root, "kb", "tests")
         os.makedirs(folder, exist_ok=True)
-        with open(os.path.join(folder, "work.json"), "w", encoding="utf-8") as handle:
-            json.dump(data, handle)
-
-    def test_a_passage_lost_in_conversion_is_caught(self):
-        from docbase import selftest
-        self.drop("a.html", page(1, "Parcel replies", "Use the reply below.", self.MACRO))
-        self.sync(quiet=True)
-        self.assertEqual([r[3] for r in selftest.check_integrity(self.cfg)], [[]])
-
-        path = os.path.join(self.cfg.layout.path("text"), "parcel-replies.md")
-        text = open(path, encoding="utf-8").read().replace("tomorrow morning", "")
-        with open(path, "w", encoding="utf-8") as handle:
+        with open(os.path.join(folder, name), "w", encoding="utf-8") as handle:
             handle.write(text)
-        lost = selftest.check_integrity(self.cfg)[0][3]
-        self.assertEqual(lost, ["Your parcel leaves the warehouse tomorrow morning."])
 
-    def test_a_link_inside_a_passage_is_not_a_loss(self):
-        from docbase import selftest
-        self.assertEqual(selftest.missing_passages(
-            ["Track it on the carrier site today please"],
-            "Track it on the [carrier site](https://example.com) today please"), [])
-
-    def test_questions_are_found_by_search_or_a_card_or_are_dangerous(self):
-        from docbase import selftest
+    def _travel_base(self):
         self.drop("a.html", page(1, "Travel booking",
                                  "Domestic trips must be requested five working "
                                  "days ahead."))
@@ -3185,28 +3165,76 @@ class TestSelfTest(BaseCase):
         os.makedirs(folder)
         with open(os.path.join(folder, "ask.md"), "w", encoding="utf-8") as handle:
             handle.write("Taxi to the airport is booked by the traveller.\n")
-        self._cases({"anchors": [{"fact": "five working days"},
-                                 {"fact": "six working days", "why": "lead time"}],
-                     "questions": [
-                         {"question": "how early is a domestic trip requested",
-                          "answer": "five working days"},
-                         {"question": "who books the airport taxi",
-                          "answer": "booked by the traveller"},
-                         {"question": "what format are receipts in",
-                          "answer": "signed by the manager"},
-                         {"question": "how do I claim a lost umbrella",
-                          "absent": True}]})
-        cases = selftest.load_cases(self.cfg)
-        missing, total = selftest.check_anchors(self.cfg, cases)
-        self.assertEqual((total, [m[1] for m in missing]), (2, ["six working days"]))
-        outcomes = [r[2] for r in selftest.check_questions(self.cfg, cases)]
-        self.assertEqual(outcomes, ["search", "card", "dangerous", "honest"])
 
-    def test_the_report_fails_when_something_is_dangerous(self):
+    def test_a_passage_lost_in_conversion_is_caught(self):
         from docbase import selftest
-        self.drop("a.html", page(1, "Travel booking", "Book five days ahead."))
+        self.drop("a.html", page(1, "Parcel replies", "Use the reply below.", self.MACRO))
         self.sync(quiet=True)
-        self._cases({"questions": [{"question": "who approves a trip",
-                                    "answer": "the department head"}]})
+        self.assertEqual(selftest.check_integrity(self.cfg)["parcel-replies.md"][2], [])
+
+        path = os.path.join(self.cfg.layout.path("text"), "parcel-replies.md")
+        text = open(path, encoding="utf-8").read().replace("tomorrow morning", "")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        lost = selftest.check_integrity(self.cfg)["parcel-replies.md"][2]
+        self.assertEqual(len(lost), 1)
+        self.assertIn("leaves the warehouse", lost[0])
+
+    def test_a_link_inside_a_passage_is_not_a_loss(self):
+        from docbase import selftest
+        self.assertEqual(selftest.missing_passages(
+            ["Track it on the carrier site today please"],
+            "Track it on the [carrier site](https://example.com) today please"), [])
+
+    def test_a_macro_the_export_did_not_expand_is_named(self):
+        from docbase import selftest
+        notes = selftest.notes_on("# Page\n\n" + "Text. " * 400 + "$body $body\n")
+        self.assertEqual(len(notes), 1)
+        self.assertIn("$body", notes[0])
+
+    def test_the_plain_format_is_read(self):
+        from docbase import selftest
+        self._travel_base()
+        self._write("travel-booking.md",
+                    "# tests\n? how early is a domestic trip requested\n"
+                    "= five working days\n! five working days\n! six working days\n")
+        cases = selftest.load_cases(self.cfg)
+        self.assertEqual(cases[0]["document"], "travel-booking.md")
+        missing, total = selftest.check_anchors(self.cfg, cases)
+        self.assertEqual((total, [m[2] for m in missing]), (2, ["six working days"]))
+        self.assertEqual([r[3] for r in selftest.check_questions(self.cfg, cases)],
+                         ["search"])
+
+    def test_a_miss_is_dangerous_only_when_the_search_was_sure(self):
+        """A doubted miss is asked again by the skill; a confident one is
+        answered from the wrong fragment and nothing makes anyone look."""
+        from docbase import selftest
+        self._travel_base()
+        self._write("work.json", json.dumps({"questions": [
+            {"question": "how early is a domestic trip requested",
+             "answer": "five working days"},
+            {"question": "who books the airport taxi",
+             "answer": "booked by the traveller"},
+            {"question": "receipts must be PDF", "answer": "signed by the manager"},
+            {"question": "what colour is the office cat",
+             "answer": "ginger"},
+            {"question": "how do I claim a lost umbrella", "absent": True}]}))
+        cases = selftest.load_cases(self.cfg)
+        outcomes = [r[3] for r in selftest.check_questions(self.cfg, cases)]
+        self.assertEqual(outcomes, ["search", "card", "dangerous", "missing", "honest"])
+
+    def test_a_change_since_the_last_run_is_shown(self):
+        from docbase import selftest
+        self._travel_base()
+        self._write("travel-booking.md",
+                    "? how early is a domestic trip requested\n= five working days\n")
         with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(selftest.report(self.cfg, quick=True), 0)
+        path = os.path.join(self.cfg.layout.path("text"), "travel-booking.md")
+        text = open(path, encoding="utf-8").read().replace("five working", "several")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
             self.assertEqual(selftest.report(self.cfg, quick=True), 1)
+        self.assertIn("was search", output.getvalue())

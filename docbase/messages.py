@@ -293,31 +293,47 @@ UK = {
         "  обсяг видачі       ~{tokens} токенів на запит",
 
     # -- selftest -----------------------------------------------------------
-    "Integrity: {documents} [[documents:document|documents]], {checked} "
-    "set-apart [[checked:passage|passages]], {lost} missing":
-        "Цілісність: {documents} [[documents:документ|документи|документів]], "
-        "виділених фрагментів (курсив, шаблони повідомлень): {checked}, бракує: {lost}",
-    "  ! {name} -> {out}: {lost} of {count} missing":
-        "  ! {name} → {out}: бракує {lost} з {count}",
-    "No cases in {folder} yet. Add some: see docbase/selftest.py for the format.":
-        "Кейсів у {folder} ще немає. Формат описано на початку docbase/selftest.py.",
-    "Anchors: {ok} of {total} in place": "Якорі: на місці {ok} з {total}",
-    "  ! {fact} — not in {where} ({file}){why}": "  ! {fact} — немає в {where} ({file}){why}",
-    "Questions: {total} — search finds {search}, cards cover {card}, dangerous "
-    "{dangerous}":
+    "{count} unexpanded [[count:macro|macros]] ($body) — the export itself lost them":
+        "{count} [[count:нерозгорнутий макрос|нерозгорнуті макроси|нерозгорнутих "
+        "макросів]] ($body) — їх втратив сам експорт",
+    "document": "документ",
+    "templates": "шаблони",
+    "anchors": "якорі",
+    "questions": "питань",
+    "{count} ok": "{count} ok",
+    "LOST {lost}/{count}": "ВТРАЧЕНО {lost}/{count}",
+    "MISSING {lost}/{count}": "НЕМА {lost}/{count}",
+    "   lost: «{text}»": "   втрачено: «{text}»",
+    "   anchor missing: «{fact}»{why}": "   якір відсутній: «{fact}»{why}",
+    "\nWithout a single test ({count}): {names}": "\nБез жодного тесту ({count}): {names}",
+    "\nNo cases in {folder} yet. Add some: see docbase/selftest.py for the format.":
+        "\nКейсів у {folder} ще немає. Формат описано на початку docbase/selftest.py.",
+    "Questions: {total} — search finds {search}, cards cover {card}, missing "
+    "{missing}, dangerous {dangerous}":
         "Питання: {total} — пошук знаходить {search}, картки закривають {card}, "
-        "небезпечних {dangerous}",
+        "нема {missing}, небезпечних {dangerous}",
     "Not in the base: {total} — doubted honestly {honest}, answered anyway "
     "{confident}":
         "Чого в базі немає: {total} — чесно засумнівався {honest}, усе одно "
         "відповів {confident}",
     "search": "пошук",
     "card": "картка",
+    "missing": "нема",
+    "dangerous": "небезпечно",
+    "honest": "чесний сумнів",
+    "confident": "відповів",
+    "broken": "зламаний файл",
     "DANGEROUS": "НЕБЕЗПЕЧНО",
     "doubted": "сумнів",
     "ANSWERED": "ВІДПОВІВ",
     "BROKEN FILE": "ЗЛАМАНИЙ ФАЙЛ",
-    " (with doubt)": " (із сумнівом)",
+    "              looked for «{answer}»": "              шукала «{answer}»",
+    "  {question}: was {was}, now {now}": "  {question}: було «{was}», стало «{now}»",
+    "  {document}: lost templates {was} → {now}":
+        "  {document}: втрачених шаблонів {was} → {now}",
+    "Since the last run:": "Зміни від минулого прогону:",
+    "All clear.": "Усе чисто.",
+    "Problems: {count}": "Проблем: {count}",
 
     # -- doctor and init ----------------------------------------------------
     "installed": "встановлено",
