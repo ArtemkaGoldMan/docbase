@@ -52,6 +52,10 @@ CACHE_FORMAT = 4
 #: a word, as Ukrainian writes it.
 RE_WORDS = re.compile(r"[\w'’]+", re.UNICODE)
 
+#: Where one sentence ends and the next begins, for judging how close
+#: together a question's words stand.
+RE_SENTENCE_END = re.compile(r"(?<=[.!?:])\s+|\n+")
+
 RE_DOC_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)")
 
 #: Past this many documents the map names them and stops. The sections of
@@ -525,12 +529,33 @@ class Index:
         # Two copies are not two answers to choose between.
         second = next((hit for hit in hits if hit[1] != top[1]
                        and not self.copies(top, hit[1])), None)
+        # Close scores can come from the question's words scattered through
+        # an unrelated page: a question about returning a book scored as
+        # high in a note on the print queue as in the loan rule, which
+        # answers it in one sentence. A leader that
+        # says it in one sentence while the other only mentions the words is
+        # no race.
+        if second and settings.sentence_lead:
+            leader = self.sentence_cover(wanted, top[4])
+            if leader > 0 and leader >= settings.sentence_lead * \
+                    self.sentence_cover(wanted, second[4]):
+                second = None
         if second and top[0] < settings.close_race * second[0]:
             reasons.append(say("{name} is almost as likely ({second} against "
                                "{top}) — the question does not tell the two apart",
                                name=second[1], second=f"{second[0]:.2f}",
                                top=f"{top[0]:.2f}"))
         return reasons
+
+    def sentence_cover(self, wanted, text):
+        """How much of the question the best single sentence of ``text``
+        covers, weighted like the score."""
+        total = sum(self.idf.get(w, 0) for w in wanted) or 1.0
+        best = 0.0
+        for sentence in RE_SENTENCE_END.split(text):
+            found = wanted & self.stems(sentence)
+            best = max(best, sum(self.idf.get(w, 0) for w in found) / total)
+        return best
 
     def unknown_words(self, query):
         """Words of the question the documentation never uses.

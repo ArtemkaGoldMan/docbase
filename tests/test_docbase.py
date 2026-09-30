@@ -2900,13 +2900,14 @@ class TestDoubtingAnAnswer(BaseCase):
         copy = next(name for name in self.text_files()
                     if name != top[1] and name.startswith("equipment-loans"))
 
-        def race(other):
+        def race(other, text=""):
             """The best match, and another document scoring just below it."""
-            return index.doubts(query, [top, (top[0] * 0.99, other, 1, "", "")])
+            return index.doubts(query, [top, (top[0] * 0.99, other, 1, "", text)])
 
         self.assertFalse(any("almost as likely" in r for r in race(copy)))
         self.assertTrue(any("almost as likely" in r for r in race(
-            "unrecoverable-errors-with-panic.md")))
+            "unrecoverable-errors-with-panic.md",
+            "The calibration fee is paid for a microscope loan with a signed request.")))
 
     def test_a_fragment_is_shown_once_however_often_it_is_stored(self):
         self.drop("a.md", "# Equipment loans\n\n" + self.LOANS + "\n")
@@ -2936,6 +2937,27 @@ class TestDoubtingAnAnswer(BaseCase):
                          "the fixture no longer isolates the opening sentence")
         other = "banking.md" if hits[0][1] != "banking.md" else "consumer-rights.md"
         self.assertFalse(index.copies(hits[0], other))
+
+    def test_scattered_words_are_no_race_against_a_sentence(self):
+        """A question about returning a book scored as high in a note on the
+        print queue as in the loan rule — which answers it in one sentence.
+        The race was doubted, and the person was asked which of the two they
+        meant."""
+        self.drop("a.md", "# Loans\n\n## Rules\n\nWhen a reader returns a "
+                  "book we renewed, the renewal still counts.\n")
+        self.drop("b.md", "# Printing\n\n## Queue\n\nA reader may ask "
+                  "about delays. A renewal of the queue is final. When a book "
+                  "is returned the desk refunds it. We renewed it by e-mail.\n")
+        self.sync(quiet=True)
+        index = Index(self.cfg).build()
+        query = "reader returns book we renewed"
+        hits = index.search(query)
+        self.assertEqual(hits[0][1], "loans.md")
+        rival = next(h for h in hits if h[1] != "loans.md")
+        self.assertLess(hits[0][0], self.cfg.search.close_race * rival[0],
+                        "the fixture no longer makes a close race")
+        self.assertFalse(any("almost as likely" in r
+                             for r in index.doubts(query, hits)))
 
     def test_nothing_found_is_a_doubt(self):
         index = self._base()

@@ -56,6 +56,11 @@ class Search:
     #: When the best document leads the next one by less than this factor,
     #: the question does not tell them apart.
     close_race: float = 1.15
+    #: ...unless the best match says it in one sentence and the other only in
+    #: scattered words: when the best sentence of the leader covers the
+    #: question this many times better than the other's, it is no race.
+    #: 0 turns it off.
+    sentence_lead: float = 1.5
     heading_weight: float = 2.0
     #: Count the document's title as part of every section's heading, not
     #: only the opening one. It depends on the base: where each document is
