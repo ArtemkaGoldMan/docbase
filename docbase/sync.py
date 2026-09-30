@@ -23,6 +23,7 @@ from . import frontmatter
 from . import config as config_module
 from . import languages as languages_module
 from . import link as link_module
+from .messages import say
 
 #: How many past versions of a document to keep. Diffs are small, but an
 #: unbounded pile of them is noise nobody ever reads.
@@ -144,14 +145,16 @@ def collect_dropped(cfg, log):
         os.replace(source, target)
         known = {d: n for d, n in known.items() if n != filename}
         known[digest] = filename
-        added.append(f"{name} -> {os.path.relpath(target, layout.root)}"
-                     + (" (replaces the previous export)" if replaced else ""))
+        added.append(say("{name} -> {target}", name=name,
+                         target=os.path.relpath(target, layout.root))
+                     + (say(" (replaces the previous export)") if replaced else ""))
 
     log.extend(_summarise(added, "added"))
     if duplicates:
-        log.append(f"{len(duplicates)} duplicate copies removed"
+        log.append(say("{count} duplicate copies removed", count=len(duplicates))
                    if len(duplicates) > 1
-                   else f"{duplicates[0]} is already in the base; removed the copy")
+                   else say("{name} is already in the base; removed the copy",
+                            name=duplicates[0]))
 
 
 #: What an export ships beside its pages. A wiki writes them into
@@ -238,21 +241,25 @@ def unpack_archives(cfg, log):
                         shutil.copyfileobj(src, dst)
                     taken += 1
         except (zipfile.BadZipFile, OSError) as error:
-            log.append(f"could not open {name}: {str(error)[:60]}")
+            log.append(say("could not open {name}: {why}", name=name,
+                           why=str(error)[:60]))
             continue
         os.remove(path)
         if taken:
-            log.append(f"unpacked {name}: {taken} documents"
-                       + (f" and {attached} attachments" if attached else ""))
+            log.append(say("unpacked {name}: {count} [[count:document|documents]]",
+                           name=name, count=taken)
+                       + (say(" and {count} [[count:attachment|attachments]]",
+                              count=attached) if attached else ""))
         else:
-            log.append(f"{name} held nothing importable")
+            log.append(say("{name} held nothing importable", name=name))
 
 
 def _summarise(entries, what):
     """Long lists collapse to a count; the detail helps nobody."""
     if len(entries) <= LOG_LIMIT:
         return entries
-    return entries[:LOG_LIMIT] + [f"… and {len(entries) - LOG_LIMIT} more {what}"]
+    return entries[:LOG_LIMIT] + [say("… and {count} more",
+                                      count=len(entries) - LOG_LIMIT)]
 
 
 #: A word this long is not a word. Documents that do not write their spaces
@@ -320,8 +327,9 @@ def nothing_converted(markdown, source_bytes):
         return ""                    # it converted: the pictures came out
     if body_length(markdown) >= MINIMUM_BODY_CHARS:
         return ""
-    return (f"{source_bytes // 1024} KB in, almost no text out — a login or "
-            "error page, a scan without a text layer, or an unreadable format")
+    return say("{size} KB in, almost no text out — a login or error page, a "
+               "scan without a text layer, or an unreadable format",
+               size=source_bytes // 1024)
 
 
 RE_NUMBERED_PART = re.compile(r"^\d+(?:\.\d+)*\.?\s")
@@ -431,8 +439,9 @@ def record_history(cfg, name, old_text, new_text, log):
 
     added = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
     removed = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
-    log.append(f"{name} changed: +{added}/-{removed} "
-               f"(diff in {os.path.relpath(folder, cfg.layout.root)})")
+    log.append(say("{name} changed: +{added}/-{removed} (diff in {folder})",
+                   name=name, added=added, removed=removed,
+                   folder=os.path.relpath(folder, cfg.layout.root)))
     return True
 
 
@@ -471,7 +480,8 @@ def heal_card_sources(cfg, manifest, log):
             if wanted and wanted != current.group(1):
                 text = text.replace(current.group(1), wanted)
                 open(path, "w", encoding="utf-8").write(text)
-                log.append(f"card {topic}/{card} re-bound to {wanted}")
+                log.append(say("card {card} re-bound to {source}",
+                               card=f"{topic}/{card}", source=wanted))
 
 
 def mark_stale_cards(cfg, rebuilt, log):
@@ -489,8 +499,8 @@ def mark_stale_cards(cfg, rebuilt, log):
             match = re.search(r"source:\s*\S*?([\w.-]+\.md)", head)
             if match and match.group(1) in rebuilt:
                 with open(os.path.join(folder, "_stale"), "w", encoding="utf-8") as handle:
-                    handle.write("The source document changed. Rebuild this card.\n")
-                log.append(f"cards for '{topic}' marked stale")
+                    handle.write(say("The source document changed. Rebuild this card.\n"))
+                log.append(say("cards for '{topic}' marked stale", topic=topic))
                 break
 
 
@@ -504,10 +514,10 @@ def run(cfg=None, quiet=False, force=False):
 
     missing = missing_dependencies()
     if missing:
-        raise SystemExit(
-            "Missing Python packages: " + ", ".join(missing) + "\n"
-            "Install them with:\n"
-            "  python -m pip install " + " ".join(missing))
+        raise SystemExit(say(
+            "Missing Python packages: {names}\nInstall them with:\n"
+            "  python -m pip install {packages}",
+            names=", ".join(missing), packages=" ".join(missing)))
 
     manifest_path = layout.path("manifest")
     manifest = {} if force else read_manifest(manifest_path)
@@ -536,7 +546,8 @@ def run(cfg=None, quiet=False, force=False):
 
         if (name.lower().endswith(".pdf") and known
                 and known.get("page_id") in rich_pages):
-            log.append(f"{name} skipped: this page is already available as HTML")
+            log.append(say("{name} skipped: this page is already available as HTML",
+                           name=name))
             skipped += 1
             continue
 
@@ -553,7 +564,8 @@ def run(cfg=None, quiet=False, force=False):
 
         digest = fingerprint(path)
         if digest in seen_digests:
-            log.append(f"{name} is a copy of {seen_digests[digest]}; skipped")
+            log.append(say("{name} is a copy of {other}; skipped", name=name,
+                           other=seen_digests[digest]))
             skipped += 1
             continue
         seen_digests[digest] = name
@@ -568,16 +580,17 @@ def run(cfg=None, quiet=False, force=False):
         try:
             markdown, slug = convert_document(path, cfg)
         except Exception as error:               # noqa: BLE001
-            reason = f"{str(error)[:70]} (damaged, or a format this cannot read)"
+            reason = say("{why} (damaged, or a format this cannot read)",
+                         why=str(error)[:70])
             failed.append((name, reason))
             manifest[name] = {"sha1": digest, "stat": stat, "failed": reason}
             continue
 
         share = run_on_share(markdown)
         if share > RUN_ON_SHARE:
-            log.append(f"{name}: {share:.0%} of the text came out run together "
-                       f"— the file does not write its spaces, so phrases in "
-                       f"it will not be found")
+            log.append(say("{name}: {share} of the text came out run together — "
+                           "the file does not write its spaces, so phrases in "
+                           "it will not be found", name=name, share=f"{share:.0%}"))
 
         empty = nothing_converted(markdown, os.path.getsize(path))
         if empty:
@@ -612,7 +625,8 @@ def run(cfg=None, quiet=False, force=False):
             if previous:
                 record_history(cfg, out_name, previous, markdown, log)
             else:
-                added.append(f"added {os.path.relpath(destination, layout.root)}")
+                added.append(say("added {path}",
+                                  path=os.path.relpath(destination, layout.root)))
             rebuilt.add(out_name)
 
         manifest[name] = {"sha1": digest, "stat": stat,
@@ -621,7 +635,8 @@ def run(cfg=None, quiet=False, force=False):
 
     log.extend(_summarise(added, "documents"))
     if unchanged:
-        log.append(f"{unchanged} documents re-read and unchanged")
+        log.append(say("{count} [[count:document|documents]] re-read and unchanged",
+                       count=unchanged))
 
     heal_card_sources(cfg, manifest, log)
     mark_stale_cards(cfg, rebuilt, log)
@@ -673,25 +688,27 @@ def _align_assets(cfg, slug, out_name, markdown):
 
 def _print_report(cfg, report):
     for name, why in report["failed"]:
-        print(f"  ! could not read '{name}': {why}")
+        print(say("  ! could not read '{name}': {why}", name=name, why=why))
 
     if not report["documents"]:
-        print("The base is empty. Export a page from your wiki "
-              "(PDF, Word or HTML) and drop the file into this folder.")
+        print(say("The base is empty. Export a page from your wiki (PDF, Word or "
+                  "HTML) and drop the file into this folder."))
         return
 
-    line = f"Base: {report['documents']} documents"
+    line = say("Base: {count} [[count:document|documents]]",
+               count=report["documents"])
     if report["skipped"]:
-        line += f", {report['skipped']} unchanged"
+        line += say(", {count} unchanged", count=report["skipped"])
     print(line)
     for entry in _summarise(report["log"], "entries"):
         print(f"  - {entry}")
     stats = report["link"]
     if stats.get("linked"):
-        print(f"  - linked {stats['linked']} cross-document references")
+        print(say("  - linked {count} cross-document [[count:reference|references]]",
+                  count=stats["linked"]))
     if stats.get("missing"):
-        print(f"  - {len(stats['missing'])} referenced pages are not imported yet "
-              f"(see kb/graph.md)")
+        print(say("  - {count} referenced [[count:page is|pages are]] not imported "
+                  "yet (see kb/graph.md)", count=len(stats["missing"])))
 
 
 def main(argv=None):

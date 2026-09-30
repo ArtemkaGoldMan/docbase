@@ -77,6 +77,9 @@ class Config:
     languages: tuple = ("en",)
     #: Extra stopwords on top of the language defaults.
     extra_stopwords: frozenset = frozenset()
+    #: The language the tool speaks to people in. English unless the config
+    #: says otherwise; see messages.py for the ones it knows.
+    interface: str = "en"
 
     @property
     def language(self):
@@ -183,15 +186,18 @@ def load(root=None):
         importer=imp,
         languages=tuple(language) or ("en",),
         extra_stopwords=frozenset(raw.get("extra_stopwords", ())),
+        interface=str(raw.get("interface", "en")),
         custom_stopwords=tuple(sorted(custom_stop.items())),
         custom_translit=tuple(sorted(custom_translit.items())),
     )
 
 
-def write_default(root, language="en", internal_hosts=()):
+def write_default(root, language="en", internal_hosts=(), interface=None):
     """Create a starter config. Returns the path written."""
     data = dict(DEFAULT_CONFIG)
     data["language"] = language
+    if interface:
+        data["interface"] = interface
     data["importer"] = {"internal_hosts": list(internal_hosts),
                         "min_image_bytes": 8000}
     path = os.path.join(root, CONFIG_NAME)

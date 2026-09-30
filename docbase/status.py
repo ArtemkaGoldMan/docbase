@@ -11,6 +11,7 @@ import re
 import time
 
 from . import config as config_module
+from .messages import say
 from . import sync as sync_module
 
 #: Status answers "is the base current?", and this report is also read by an
@@ -67,36 +68,37 @@ def report(cfg=None):
                        if f.endswith(".md")) if os.path.isdir(text_dir) else []
 
     if not documents:
-        print("The base is empty. Drop an exported page into this folder "
-              "and run: docbase sync")
+        print(say("The base is empty. Drop an exported page into this folder "
+                  "and run: docbase sync"))
         return 1
 
-    print(f"Documents: {len(documents)}")
+    print(say("Documents: {count}", count=len(documents)))
     for name in documents[:DOCUMENT_LIMIT]:
         path = os.path.join(text_dir, name)
         changed = time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(path)))
         size = os.path.getsize(path)
-        print(f"  {name:<44} {size // 1024:>4} KB   updated {changed}")
+        print(f"  {name:<44} {size // 1024:>4} KB   "
+              + say("updated {date}", date=changed))
     if len(documents) > DOCUMENT_LIMIT:
-        print(f"  … and {len(documents) - DOCUMENT_LIMIT} more "
-              f"(docbase map lists them all)")
+        print(say("  … and {count} more (docbase map lists them all)",
+                  count=len(documents) - DOCUMENT_LIMIT))
 
     manifest = sync_module.read_manifest(layout.path("manifest"))
     broken = [(n, e["failed"]) for n, e in manifest.items() if e.get("failed")]
     if broken:
-        print("\nFiles that could not be read:")
+        print(say("\nFiles that could not be read:"))
         for name, why in broken:
             print(f"  ! {name}: {why}")
 
     stale = _stale_cards(cfg)
     if stale:
-        print("\nCards waiting to be rebuilt (their source changed):")
+        print(say("\nCards waiting to be rebuilt (their source changed):"))
         for topic in stale:
             print(f"  - {topic}")
 
     changes = _recent_changes(cfg)
     if changes:
-        print("\nRecent document changes:")
+        print(say("\nRecent document changes:"))
         for stamp, document, path in changes:
             relative = os.path.relpath(path, layout.root)
             print(f"  {stamp}  {document}")
@@ -104,15 +106,17 @@ def report(cfg=None):
 
     missing = _missing_pages(cfg)
     if missing:
-        print(f"\nReferenced but not imported: {len(missing)} pages")
+        print(say("\nReferenced but not imported: {count} [[count:page|pages]]",
+                  count=len(missing)))
         ordered = sorted(missing.items(), key=lambda kv: (-len(kv[1]), kv[0]))
         for page_id, labels in ordered[:8]:
             names = "; ".join(labels[:2]) if isinstance(labels, list) else str(labels)
             print(f"  {page_id}  {names[:60]}")
         if len(missing) > 8:
-            print(f"  ... and {len(missing) - 8} more (see kb/graph.md)")
-        print("  Most cited first — those are the ones worth importing next.")
+            print(say("  ... and {count} more (see kb/graph.md)",
+                      count=len(missing) - 8))
+        print(say("  Most cited first — those are the ones worth importing next."))
 
     if not (broken or stale or missing):
-        print("\nEverything is current.")
+        print(say("\nEverything is current."))
     return 0

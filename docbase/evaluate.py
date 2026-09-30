@@ -23,6 +23,7 @@ import re
 import time
 
 from . import config as config_module
+from .messages import say
 from .search import Index
 
 EVAL_NAME = "kb/eval.json"
@@ -36,7 +37,7 @@ def generate(cfg=None, count=20):
     cfg = cfg or config_module.load()
     index = Index(cfg).build()
     if not index.chunks:
-        print("The base is empty; nothing to generate cases from.")
+        print(say("The base is empty; nothing to generate cases from."))
         return 1
 
     scored = []
@@ -88,19 +89,21 @@ def generate(cfg=None, count=20):
 
     if not cases:
         # Silence here would mean the whole evaluation quietly stops existing.
-        print(f"Could not build any cases from {len(index.chunks)} fragments.")
-        print("Every candidate was rejected: too short, too few distinctive "
-              "words, or no phrase that avoids the query terms.")
-        print("The corpus may be very repetitive, or mostly tables. "
-              "Write a few cases by hand in " + EVAL_NAME + " instead.")
+        print(say("Could not build any cases from {count} fragments.",
+                  count=len(index.chunks)))
+        print(say("Every candidate was rejected: too short, too few distinctive "
+                  "words, or no phrase that avoids the query terms."))
+        print(say("The corpus may be very repetitive, or mostly tables. Write a "
+                  "few cases by hand in {path} instead.", path=EVAL_NAME))
         return 1
 
     _save(cfg, handwritten + cases)
-    print(f"Wrote {len(cases)} generated cases "
-          f"({len(handwritten)} hand-written kept) to {EVAL_NAME}")
+    print(say("Wrote {count} generated cases ({kept} hand-written kept) to {path}",
+              count=len(cases), kept=len(handwritten), path=EVAL_NAME))
     if len(cases) < count:
-        print(f"Asked for {count}; the corpus yielded {len(cases)} usable ones.")
-    print("Review them: a good case reads like a real question, not keywords.")
+        print(say("Asked for {asked}; the corpus yielded {count} usable ones.",
+                  asked=count, count=len(cases)))
+    print(say("Review them: a good case reads like a real question, not keywords."))
     return 0
 
 
@@ -177,7 +180,7 @@ def run(cfg=None, verbose=False):
     cfg = cfg or config_module.load()
     cases = _load(cfg)
     if not cases:
-        print("No cases yet. Build some with: docbase eval --generate")
+        print(say("No cases yet. Build some with: docbase eval --generate"))
         return 1
 
     index = Index(cfg).build()
@@ -190,7 +193,7 @@ def run(cfg=None, verbose=False):
         if not _marker_present(cfg, marker, filename):
             skipped += 1
             if verbose:
-                print(f"  skipped   marker not in {filename}")
+                print(say("  skipped   marker not in {name}", name=filename))
             continue
 
         started = time.perf_counter()
@@ -220,20 +223,24 @@ def run(cfg=None, verbose=False):
 
     total = len(cases) - skipped
     if not total:
-        print("No usable cases: markers no longer match the corpus. "
-              "Regenerate with: docbase eval --generate")
+        print(say("No usable cases: markers no longer match the corpus. "
+                  "Regenerate with: docbase eval --generate"))
         return 1
 
     def pct(value):
         return f"{value}/{total} ({100 * value // total}%)"
 
-    print(f"\nCases: {total}" + (f" ({skipped} skipped)" if skipped else ""))
+    print(say("\nCases: {count}", count=total)
+          + (say(" ({count} skipped)", count=skipped) if skipped else ""))
     print(f"  top-1              {pct(at1)}")
     print(f"  top-3              {pct(at3)}")
     print(f"  top-5              {pct(at5)}")
-    print(f"  in returned {limit:<6} {pct(anywhere)}   <- what the agent actually sees")
-    print(f"  right document #1  {pct(right_file)}   <- guards against confident wrong answers")
-    print(f"  search time        {sum(times) / len(times):.0f} ms average, "
-          f"{max(times):.0f} ms worst")
-    print(f"  context returned   ~{sum(sizes) // len(sizes) // 4} tokens per query")
+    print(say("  in returned {limit}   {value}   <- what the agent actually sees",
+              limit=f"{limit:<6}", value=pct(anywhere)))
+    print(say("  right document #1  {value}   <- guards against confident wrong answers",
+              value=pct(right_file)))
+    print(say("  search time        {average} ms average, {worst} ms worst",
+              average=f"{sum(times) / len(times):.0f}", worst=f"{max(times):.0f}"))
+    print(say("  context returned   ~{tokens} tokens per query",
+              tokens=sum(sizes) // len(sizes) // 4))
     return 0

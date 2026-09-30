@@ -25,6 +25,7 @@ import os
 import re
 
 from . import config as config_module
+from .messages import say
 from . import frontmatter
 from . import languages
 
@@ -181,8 +182,8 @@ def report(cfg=None, verbose=False):
     text_dir = cfg.layout.path("text")
 
     if not os.path.isdir(cards_dir) or not os.listdir(cards_dir):
-        print("No cards to verify. They are written by an agent as it works;")
-        print("see the docs-tailor skill.")
+        print(say("No cards to verify. They are written by an agent as it works;"))
+        print(say("see the docs-tailor skill."))
         return 0
 
     by_id = {}
@@ -252,37 +253,39 @@ def report(cfg=None, verbose=False):
             except OSError:
                 pass
 
-    print(f"Cards checked: {total_cards}   claims confirmed: {total_confirmed}")
+    print(say("Cards checked: {cards}   claims confirmed: {claims}",
+              cards=total_cards, claims=total_confirmed))
 
     if cleared:
-        print("\nStale markers cleared (claims still hold against the new source):")
+        print(say("\nStale markers cleared (claims still hold against the new source):"))
         for topic in cleared:
             print(f"  {topic}")
 
     if orphans:
-        print("\nCards whose source is missing:")
+        print(say("\nCards whose source is missing:"))
         for name in orphans:
             print(f"  ? {name}")
-        print("  The document was removed or never imported; the card cannot")
-        print("  be trusted until it is restored.")
+        print(say("  The document was removed or never imported; the card cannot"))
+        print(say("  be trusted until it is restored."))
 
     if stale:
-        print("\nCards marked stale (their source changed since):")
+        print(say("\nCards marked stale (their source changed since):"))
         for topic in stale:
             print(f"  ! {topic}")
 
     if findings:
-        print("\nClaims not found in the source:")
+        print(say("\nClaims not found in the source:"))
         for card, source, problems in findings:
-            print(f"\n  {card}  (against {source})")
+            print(say("\n  {card}  (against {source})", card=card, source=source))
             for kind, claim, line in problems[:8] if not verbose else problems:
                 detail = f"   <- {line}" if line else ""
-                print(f"    {kind:<7} {claim}{detail}")
+                print(f"    {say(kind):<7} {claim}{detail}")
             if not verbose and len(problems) > 8:
-                print(f"    … and {len(problems) - 8} more (-v to see all)")
-        print("\nA number or quotation that is not in the document is either a")
-        print("transcription error or drift. Fix the card against its source.")
+                print(say("    … and {count} more (-v to see all)",
+                          count=len(problems) - 8))
+        print(say("\nA number or quotation that is not in the document is either a"))
+        print(say("transcription error or drift. Fix the card against its source."))
 
     if not (findings or orphans):
-        print("\nEvery number and quotation is present in its source.")
+        print(say("\nEvery number and quotation is present in its source."))
     return 1 if (findings or orphans) else 0

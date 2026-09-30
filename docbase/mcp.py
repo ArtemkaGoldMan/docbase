@@ -22,6 +22,8 @@ import os
 import sys
 
 from . import config as config_module
+from . import messages
+from .messages import say
 
 #: Versions whose stdio framing and method names match what is implemented.
 KNOWN_PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
@@ -182,8 +184,9 @@ def _read_section(cfg, arguments):
         if name == wanted or os.path.basename(name) == wanted:
             lines = open(path, encoding="utf-8").read().splitlines()
             chunk = lines[start - 1:start - 1 + count]
-            return "\n".join(chunk) if chunk else "(past the end of the document)"
-    return f"No document called {wanted!r}. Call list_documents for the names."
+            return "\n".join(chunk) if chunk else say("(past the end of the document)")
+    return say("No document called {name}. List the documents for their names.",
+               name=repr(wanted))
 
 
 def call_tool(cfg, name, arguments):
@@ -260,6 +263,7 @@ def handle(message, cfg):
 def serve(cfg=None, stdin=None, stdout=None):
     """Read line-delimited JSON-RPC until the input closes."""
     cfg = cfg or config_module.load()
+    messages.use(cfg.interface)
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
 

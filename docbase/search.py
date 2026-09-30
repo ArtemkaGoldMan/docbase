@@ -26,6 +26,7 @@ import os
 import re
 
 from . import config as config_module
+from .messages import say
 
 RE_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 #: The links table the importer appends. It is generated, so it is not a
@@ -487,7 +488,7 @@ class Index:
           install", one place above "Installation".
         """
         if not hits:
-            return ["nothing in the base matched the question"]
+            return [say("nothing in the base matched the question")]
         settings = self.cfg.search
         wanted = self.stems(query)
         top = hits[0]
@@ -495,24 +496,27 @@ class Index:
         if not wanted & self.titles.get(top[1], set()) and any(
                 wanted & title for name, title in self.titles.items()
                 if name != top[1]):
-            reasons.append(f"the best match is in {top[1]}, whose title shares "
-                           f"no word with the question, though other titles do")
+            reasons.append(say("the best match is in {name}, whose title shares "
+                               "no word with the question, though other titles do",
+                               name=top[1]))
         agree = sum(1 for hit in hits[:5] if hit[1] == top[1])
         if top[0] < settings.always_doubt_below:
-            reasons.append(f"the best match covers little of the question "
-                           f"(score {top[0]:.2f})")
+            reasons.append(say("the best match covers little of the question "
+                               "(score {score})", score=f"{top[0]:.2f}"))
         elif top[0] < settings.low_confidence and agree < 2:
-            reasons.append(f"the best match covers little of the question "
-                           f"(score {top[0]:.2f}) and nothing near it agrees")
+            reasons.append(say("the best match covers little of the question "
+                               "(score {score}) and nothing near it agrees",
+                               score=f"{top[0]:.2f}"))
         # A document that says what the best match says is a copy of it — the
         # same page dropped as both PDF and Word — and gives the same answer.
         # Two copies are not two answers to choose between.
         second = next((hit for hit in hits if hit[1] != top[1]
                        and not self.copies(top, hit[1])), None)
         if second and top[0] < settings.close_race * second[0]:
-            reasons.append(f"{second[1]} is almost as likely ({second[0]:.2f} "
-                           f"against {top[0]:.2f}) — the question does not "
-                           f"tell the two apart")
+            reasons.append(say("{name} is almost as likely ({second} against "
+                               "{top}) — the question does not tell the two apart",
+                               name=second[1], second=f"{second[0]:.2f}",
+                               top=f"{top[0]:.2f}"))
         return reasons
 
     def unknown_words(self, query):
@@ -577,15 +581,15 @@ def outline(index, wanted="", cap=0):
     """
     files = index.files()
     if not files:
-        return ["The base is empty."]
+        return [say("The base is empty.")]
 
     needle = wanted.strip().lower()
     if needle:
         files = [(name, path) for name, path in files
                  if needle in name.lower() or needle in title_of(path).lower()]
         if not files:
-            return [f"No document matches {wanted!r}. "
-                    "Ask for the map without a name to see them all."]
+            return [say("No document matches {wanted}. Ask for the map without "
+                        "a name to see them all.", wanted=wanted)]
 
     detailed = bool(needle) or len(files) <= MAP_DOCUMENT_LIMIT
     shown = files[:cap] if cap and len(files) > cap else files
@@ -601,13 +605,35 @@ def outline(index, wanted="", cap=0):
         for line_no, heading in headings[:MAP_SECTION_LIMIT]:
             out.append(f"  {line_no:>5}  {heading}")
         if len(headings) > MAP_SECTION_LIMIT:
-            out.append(f"        … {len(headings) - MAP_SECTION_LIMIT} more sections")
+            out.append(say("        … {count} more sections",
+                           count=len(headings) - MAP_SECTION_LIMIT))
 
     if len(shown) < len(files):
-        out.append(f"… and {len(files) - len(shown)} more documents")
+        out.append(say("… and {count} more [[count:document|documents]]",
+                       count=len(files) - len(shown)))
     if not detailed:
-        out.append(f"\n{len(files)} documents. Name one to see its sections.")
+        out.append(say("\n{count} [[count:document|documents]]. Name one to see "
+                       "its sections.", count=len(files)))
     return out
+
+
+def shown_fragments(settings, hits):
+    """The fragments exactly as `find` prints them, cut the way it cuts them.
+
+    One function for the command and for the self-test: a test that read the
+    fragments whole would pass on answers the agent is never shown.
+    """
+    lines, budget = [], settings.total_chars
+    for score, name, line_no, heading, body in hits:
+        text = "\n".join(l for l in body.splitlines() if l.strip())
+        text = text[:min(settings.per_hit_chars, budget)]
+        lines += ["", f"=== {name}:{line_no}  [{score:.2f}]  "
+                      f"{heading or say('(no heading)')}", text]
+        budget -= len(text)
+        if budget <= 0:
+            lines += ["", say("(truncated — narrow the query)")]
+            break
+    return lines
 
 
 #: How many sections of each close document to show when asking again. Enough
@@ -626,27 +652,27 @@ def low_confidence_notice(index, query, hits):
     reasons = index.doubts(query, hits)
     if not reasons:
         return []
-    lines = ["LOW CONFIDENCE — the best match may be the wrong one:"]
+    lines = [say("LOW CONFIDENCE — the best match may be the wrong one:")]
     lines += [f"  - {reason}" for reason in reasons]
 
     unknown = index.unknown_words(query)
     if unknown:
-        lines += ["", "Words from the question the documentation never uses: "
-                  + ", ".join(unknown),
-                  "  Replace these first — nothing in the base can match them."]
+        lines += ["", say("Words from the question the documentation never uses: "
+                          "{words}", words=", ".join(unknown)),
+                  say("  Replace these first — nothing in the base can match them.")]
 
     closest = index.closest_documents(hits)
     if closest:
-        lines += ["", "What the documentation calls the nearby topics:"]
+        lines += ["", say("What the documentation calls the nearby topics:")]
         for name in closest:
             lines.append(f"  {name}")
             for line_no, heading in index.headings(name)[:DOUBT_HEADINGS]:
                 lines.append(f"     {line_no:>5}  {heading}")
 
     lines += ["",
-              "Ask again in the documentation's words, taken from the headings "
-              "above. If two searches agree on a section, read it whole. If "
-              "they do not, the base may not cover this — say so, or ask "
-              "which of the nearby topics was meant."]
+              say("Ask again in the documentation's words, taken from the "
+                  "headings above. If two searches agree on a section, read it "
+                  "whole. If they do not, the base may not cover this — say so, "
+                  "or ask which of the nearby topics was meant.")]
     return lines
 

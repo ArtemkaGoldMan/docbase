@@ -2980,3 +2980,180 @@ class TestVeryWeakMatchesAreDoubted(BaseCase):
         hits = index.search(query)
         self.assertLess(hits[0][0], self.cfg.search.always_doubt_below)
         self.assertTrue(any("covers little" in r for r in index.doubts(query, hits)))
+
+
+class TestSpeakingTheBasesLanguage(BaseCase):
+    """The person the tool talks to may not read English. A base that says
+    so in its config is answered in its own language, down to the plural."""
+
+    def _ukrainian(self):
+        config_module.write_default(self.root, language="uk", interface="uk")
+        self.cfg = config_module.load(self.root)
+
+    def tearDown(self):
+        from docbase import messages
+        messages.use("en")
+        super().tearDown()
+
+    def test_every_message_the_code_says_has_a_ukrainian_version(self):
+        import ast
+        import glob
+        from docbase.messages import UK
+        package = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "docbase")
+        said = set()
+        for path in glob.glob(os.path.join(package, "**", "*.py"), recursive=True):
+            for node in ast.walk(ast.parse(open(path, encoding="utf-8").read())):
+                if (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "say"
+                        and node.args and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)):
+                    said.add(node.args[0].value)
+        self.assertGreater(len(said), 100)
+        self.assertEqual(sorted(said - set(UK)), [])
+
+    def test_ukrainian_numbers_take_the_right_form(self):
+        from docbase import messages
+        messages.use("uk")
+        forms = {n: messages.say("Base: {count} [[count:document|documents]]", count=n)
+                 for n in (1, 2, 5, 11, 12, 21, 22, 25, 111)}
+        self.assertEqual(forms, {
+            1: "База: 1 документ", 2: "База: 2 документи", 5: "База: 5 документів",
+            11: "База: 11 документів", 12: "База: 12 документів",
+            21: "База: 21 документ", 22: "База: 22 документи",
+            25: "База: 25 документів", 111: "База: 111 документів"})
+        messages.use("en")
+        self.assertEqual(messages.say("Base: {count} [[count:document|documents]]",
+                                      count=1), "Base: 1 document")
+
+    def test_a_ukrainian_base_reports_in_ukrainian(self):
+        from docbase import __main__ as cli
+        self._ukrainian()
+        self.drop("a.html", page(1, "Travel booking", "Book five days ahead."))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            cli.main(["--root", self.root, "sync"])
+        self.assertIn("База: 1 документ", output.getvalue())
+        self.assertIn("додано kb/text/travel-booking.md", output.getvalue())
+
+    def test_an_english_base_is_unchanged(self):
+        from docbase import __main__ as cli
+        self.drop("a.html", page(1, "Travel booking", "Book five days ahead."))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            cli.main(["--root", self.root, "sync"])
+        self.assertIn("Base: 1 document", output.getvalue())
+
+
+class TestTheHookIsNeverSilent(BaseCase):
+    """The hook runs `sync --quiet` before every message, and a hook's error
+    output reaches nobody. When anything broke, the base silently stopped
+    updating and nothing said so."""
+
+    def test_a_failure_is_said_where_the_agent_reads(self):
+        from unittest import mock
+        from docbase import __main__ as cli
+        output = io.StringIO()
+        with mock.patch("docbase.sync.run", side_effect=PermissionError("locked")), \
+                contextlib.redirect_stdout(output):
+            code = cli.main(["--root", self.root, "sync", "--quiet"])
+        self.assertEqual(code, 0)
+        self.assertIn("The base was not updated", output.getvalue())
+        self.assertIn("PermissionError: locked", output.getvalue())
+
+    def test_missing_packages_are_named(self):
+        from unittest import mock
+        from docbase import __main__ as cli
+        output = io.StringIO()
+        with mock.patch("docbase.importers.missing_dependencies",
+                        return_value=["pdfplumber"]), \
+                contextlib.redirect_stdout(output):
+            cli.main(["--root", self.root, "sync", "--quiet"])
+        self.assertIn("pip install pdfplumber", output.getvalue())
+
+
+class TestReadingFromALine(BaseCase):
+    """`sed -n` is not there on every system the skills run on."""
+
+    def test_a_document_is_read_from_the_line_asked_for(self):
+        from docbase import __main__ as cli
+        self.drop("notes.md", "# Notes\n\n" + "\n\n".join(f"Line {n}." for n in range(1, 30)))
+        self.sync(quiet=True)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            cli.main(["--root", self.root, "read", "notes.md", "5", "-n", "3"])
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[0], open(os.path.join(
+            self.cfg.layout.path("text"), "notes.md"), encoding="utf-8").read().splitlines()[4])
+
+
+class TestSelfTest(BaseCase):
+    """Three layers, as the base's own users arrived at: the originals'
+    set-apart passages survive conversion, facts that cost money are still
+    there, and working questions find their answer in what `find` shows or
+    in a card."""
+
+    MACRO = ('<div class="copy-text"><em>Your parcel leaves the warehouse '
+             'tomorrow morning.</em></div>')
+
+    def _cases(self, data):
+        folder = os.path.join(self.root, "kb", "tests")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "work.json"), "w", encoding="utf-8") as handle:
+            json.dump(data, handle)
+
+    def test_a_passage_lost_in_conversion_is_caught(self):
+        from docbase import selftest
+        self.drop("a.html", page(1, "Parcel replies", "Use the reply below.", self.MACRO))
+        self.sync(quiet=True)
+        self.assertEqual([r[3] for r in selftest.check_integrity(self.cfg)], [[]])
+
+        path = os.path.join(self.cfg.layout.path("text"), "parcel-replies.md")
+        text = open(path, encoding="utf-8").read().replace("tomorrow morning", "")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        lost = selftest.check_integrity(self.cfg)[0][3]
+        self.assertEqual(lost, ["Your parcel leaves the warehouse tomorrow morning."])
+
+    def test_a_link_inside_a_passage_is_not_a_loss(self):
+        from docbase import selftest
+        self.assertEqual(selftest.missing_passages(
+            ["Track it on the carrier site today please"],
+            "Track it on the [carrier site](https://example.com) today please"), [])
+
+    def test_questions_are_found_by_search_or_a_card_or_are_dangerous(self):
+        from docbase import selftest
+        self.drop("a.html", page(1, "Travel booking",
+                                 "Domestic trips must be requested five working "
+                                 "days ahead."))
+        self.drop("b.html", page(2, "Expense reports", "Receipts must be PDF."))
+        self.sync(quiet=True)
+        folder = os.path.join(self.cfg.layout.path("cards"), "travel")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "ask.md"), "w", encoding="utf-8") as handle:
+            handle.write("Taxi to the airport is booked by the traveller.\n")
+        self._cases({"anchors": [{"fact": "five working days"},
+                                 {"fact": "six working days", "why": "lead time"}],
+                     "questions": [
+                         {"question": "how early is a domestic trip requested",
+                          "answer": "five working days"},
+                         {"question": "who books the airport taxi",
+                          "answer": "booked by the traveller"},
+                         {"question": "what format are receipts in",
+                          "answer": "signed by the manager"},
+                         {"question": "how do I claim a lost umbrella",
+                          "absent": True}]})
+        cases = selftest.load_cases(self.cfg)
+        missing, total = selftest.check_anchors(self.cfg, cases)
+        self.assertEqual((total, [m[1] for m in missing]), (2, ["six working days"]))
+        outcomes = [r[2] for r in selftest.check_questions(self.cfg, cases)]
+        self.assertEqual(outcomes, ["search", "card", "dangerous", "honest"])
+
+    def test_the_report_fails_when_something_is_dangerous(self):
+        from docbase import selftest
+        self.drop("a.html", page(1, "Travel booking", "Book five days ahead."))
+        self.sync(quiet=True)
+        self._cases({"questions": [{"question": "who approves a trip",
+                                    "answer": "the department head"}]})
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(selftest.report(self.cfg, quick=True), 1)

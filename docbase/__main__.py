@@ -4,9 +4,11 @@
     docbase sync      import new files, refresh what changed
     docbase find      search the base, return fragments
     docbase map       list documents and their sections
+    docbase read      read a document from a given line
     docbase status    what is stale, changed or missing
     docbase eval      measure retrieval quality
     docbase verify    check extracts still match their source
+    docbase selftest  check the base still holds and finds what work needs
     docbase doctor    check the environment
     docbase serve     expose the base to any MCP-capable agent
 
@@ -20,23 +22,44 @@ import os
 import sys
 
 from . import config as config_module
+from . import messages
+from .messages import say
 
 
 def cmd_init(args, cfg):
     root = os.path.abspath(args.path or os.getcwd())
     os.makedirs(root, exist_ok=True)
+    # A language the tool can speak is the one it speaks to this base.
+    interface = args.language if args.language in messages.CATALOGS else None
     path = config_module.write_default(
-        root, language=args.language, internal_hosts=args.internal_host or ())
-    layout = config_module.load(root).layout
-    layout.ensure("originals", "text")
-    print(f"Created {os.path.relpath(path, root)}")
-    print("Drop an exported page into this folder and run: docbase sync")
+        root, language=args.language, internal_hosts=args.internal_host or (),
+        interface=interface)
+    loaded = config_module.load(root)
+    loaded.layout.ensure("originals", "text")
+    messages.use(loaded.interface)
+    print(say("Created {path}", path=os.path.relpath(path, root)))
+    print(say("Drop an exported page into this folder and run: docbase sync"))
     return 0
 
 
 def cmd_sync(args, cfg):
     from . import sync
-    sync.run(cfg, quiet=args.quiet, force=args.force)
+    if not args.quiet:
+        sync.run(cfg, quiet=False, force=args.force)
+        return 0
+    # Quiet is how the hook runs it before every message, and a hook's error
+    # output reaches nobody: the base silently stopped updating and nothing
+    # said so. Whatever goes wrong is said on stdout, which the agent reads.
+    try:
+        sync.run(cfg, quiet=True, force=args.force)
+    except SystemExit as stop:
+        if stop.code in (None, 0):
+            return 0
+        print(say("The base was not updated: {why}\nRun `python -m docbase sync` "
+                  "to see what went wrong.", why=stop.code))
+    except Exception as error:                        # noqa: BLE001
+        print(say("The base was not updated: {why}\nRun `python -m docbase sync` "
+                  "to see what went wrong.", why=f"{type(error).__name__}: {error}"))
     return 0
 
 
@@ -45,8 +68,8 @@ def cmd_find(args, cfg):
 
     index = Index(cfg).build()
     if not index.files():
-        print("The base is empty. Drop an exported page into this folder "
-              "and run: docbase sync")
+        print(say("The base is empty. Drop an exported page into this folder "
+                  "and run: docbase sync"))
         return 1
 
     query = " ".join(args.query)
@@ -54,14 +77,16 @@ def cmd_find(args, cfg):
     settings = cfg.search
 
     if not hits:
-        print("LOW CONFIDENCE — nothing in the base matched the question.")
+        print(say("LOW CONFIDENCE — nothing in the base matched the question."))
         unknown = index.unknown_words(query)
         if unknown:
-            print("Words the documentation never uses: " + ", ".join(unknown))
+            print(say("Words the documentation never uses: {words}",
+                      words=", ".join(unknown)))
         print()
         _print_map(index, cap=25)
-        print("\nAsk again in the documentation's words, taken from the map "
-              "above. Only after that conclude the base does not cover it.")
+        print("\n" + say("Ask again in the documentation's words, taken from the "
+                         "map above. Only after that conclude the base does not "
+                         "cover it."))
         return 0
 
     from .search import low_confidence_notice
@@ -70,16 +95,8 @@ def cmd_find(args, cfg):
         print("\n".join(notice))
         print()
 
-    budget = settings.total_chars
-    for score, name, line_no, heading, body in hits:
-        text = "\n".join(l for l in body.splitlines() if l.strip())
-        text = text[:min(settings.per_hit_chars, budget)]
-        print(f"\n=== {name}:{line_no}  [{score:.2f}]  {heading or '(no heading)'}")
-        print(text)
-        budget -= len(text)
-        if budget <= 0:
-            print("\n(truncated — narrow the query)")
-            break
+    from .search import shown_fragments
+    print("\n".join(shown_fragments(settings, hits)))
     return 0
 
 
@@ -93,9 +110,17 @@ def cmd_map(args, cfg):
     from .search import Index
     index = Index(cfg).build()
     if not index.files():
-        print("The base is empty.")
+        print(say("The base is empty."))
         return 1
     _print_map(index, getattr(args, "document", "") or "")
+    return 0
+
+
+def cmd_read(args, cfg):
+    """A document from a given line — what `sed -n` did, on any system."""
+    from .mcp import _read_section
+    print(_read_section(cfg, {"file": args.document, "line": args.line,
+                              "lines": args.lines}))
     return 0
 
 
@@ -116,6 +141,11 @@ def cmd_verify(args, cfg):
     return verify.report(cfg, verbose=args.verbose)
 
 
+def cmd_selftest(args, cfg):
+    from . import selftest
+    return selftest.report(cfg, verbose=args.verbose, quick=args.quick)
+
+
 def cmd_serve(args, cfg):
     from . import mcp
     return mcp.serve(cfg)
@@ -127,9 +157,10 @@ def cmd_doctor(args, cfg):
     for module in ("pypdf", "pdfplumber", "bs4"):
         try:
             __import__(module)
-            print(f"{module:<12}installed")
+            print(f"{module:<12}" + say("installed"))
         except ImportError:
-            print(f"{module:<12}MISSING — run: pip install pypdf pdfplumber beautifulsoup4")
+            print(f"{module:<12}" + say("MISSING — run: pip install pypdf "
+                                        "pdfplumber beautifulsoup4"))
             ok = False
     from . import languages as languages_module
     custom = dict(cfg.custom_stopwords)
@@ -146,12 +177,12 @@ def cmd_doctor(args, cfg):
     for which in ("originals", "text", "assets", "cards"):
         path = cfg.layout.path(which)
         count = len(os.listdir(path)) if os.path.isdir(path) else 0
-        print(f"  {which:<10}{count} entries")
+        print(f"  {which:<10}" + say("{count} entries", count=count))
 
     from . import skills as skills_module
     count, problems = skills_module.report(cfg.layout.root, cfg.layout.text)
     if count or problems:
-        print(f"  skills    {count} written for this base")
+        print("  skills    " + say("{count} written for this base", count=count))
     for name, complaint in problems:
         print(f"            ! {name}: {complaint}")
         ok = False
@@ -185,6 +216,13 @@ def build_parser():
                    help="name or title fragment; shows that document's sections")
     p.set_defaults(func=cmd_map)
 
+    p = subparsers.add_parser("read", help="read a document from a given line")
+    p.add_argument("document", help="document name, as find and map print it")
+    p.add_argument("line", nargs="?", type=int, default=1)
+    p.add_argument("-n", "--lines", type=int, default=40,
+                   help="how many lines (at most 200)")
+    p.set_defaults(func=cmd_read)
+
     p = subparsers.add_parser("status", help="what is stale, changed or missing")
     p.set_defaults(func=cmd_status)
 
@@ -198,6 +236,13 @@ def build_parser():
     p = subparsers.add_parser("verify", help="check extracts against their source")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_verify)
+
+    p = subparsers.add_parser("selftest",
+                              help="integrity, anchors and working questions")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--quick", action="store_true",
+                   help="skip re-reading the originals")
+    p.set_defaults(func=cmd_selftest)
 
     p = subparsers.add_parser("serve", help="run an MCP server on stdio")
     p.set_defaults(func=cmd_serve)
@@ -237,6 +282,7 @@ def main(argv=None):
         parser.print_help()
         return 0
     cfg = config_module.load(args.root)
+    messages.use(cfg.interface)
     return args.func(args, cfg) or 0
 
 
