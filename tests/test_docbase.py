@@ -3350,3 +3350,77 @@ class TestSelfTest(BaseCase):
         with contextlib.redirect_stdout(output):
             self.assertEqual(selftest.report(self.cfg, quick=True), 1)
         self.assertIn("was search", output.getvalue())
+
+
+class TestTheBaseSetsItselfUp(BaseCase):
+    """A person with Python and nothing else should not have to install
+    libraries. With auto_install, a command that needs them sets up the base's
+    own .venv once and runs itself again there."""
+
+    def _auto(self, on=True):
+        path = os.path.join(self.root, config_module.CONFIG_NAME)
+        data = json.load(open(path, encoding="utf-8"))
+        data["auto_install"] = on
+        json.dump(data, open(path, "w", encoding="utf-8"))
+        self.cfg = config_module.load(self.root)
+
+    def _run(self, missing=("pdfplumber",), ready=1, fail=None):
+        """-> (what ensure returned, the commands it ran, what it printed)."""
+        import subprocess
+        from unittest import mock
+        from docbase import environment
+        calls = []
+
+        def fake(command, **kwargs):
+            calls.append(command)
+            if fail and fail in command:
+                raise subprocess.CalledProcessError(1, command, stderr=b"no network")
+            code = ready if "-c" in command else 0
+            return subprocess.CompletedProcess(command, code)
+
+        output = io.StringIO()
+        with mock.patch.object(environment, "_missing", return_value=list(missing)), \
+                mock.patch.object(environment.subprocess, "run", side_effect=fake), \
+                contextlib.redirect_stdout(output):
+            code = environment.ensure(self.cfg, ["-m", "docbase", "sync"])
+        return code, calls, output.getvalue()
+
+    def test_off_unless_the_config_asks(self):
+        code, calls, _ = self._run()
+        self.assertEqual((code, calls), (None, []))
+
+    def test_nothing_to_do_when_the_libraries_are_there(self):
+        self._auto()
+        code, calls, _ = self._run(missing=())
+        self.assertEqual((code, calls), (None, []))
+
+    def test_first_run_creates_installs_and_runs_again_inside(self):
+        self._auto()
+        code, calls, output = self._run()
+        self.assertEqual(code, 0)
+        self.assertIn("venv", calls[0])
+        self.assertIn("pip", calls[2])
+        self.assertEqual(calls[3][1:], ["-m", "docbase", "sync"])
+        self.assertIn("Setting up", output)
+
+    def test_an_environment_already_there_is_not_installed_again(self):
+        from docbase import environment
+        self._auto()
+        python = environment.own_python(self.root)
+        os.makedirs(os.path.dirname(python))
+        open(python, "w").close()
+        code, calls, _ = self._run(ready=0)
+        self.assertEqual(len(calls), 2)          # the check, then the command
+        self.assertFalse(any("pip" in c for c in calls))
+
+    def test_a_failed_setup_is_said_and_does_not_block(self):
+        self._auto()
+        code, calls, output = self._run(fail="pip")
+        self.assertEqual(code, 0)
+        self.assertIn("Could not set up the environment: no network", output)
+
+    def test_a_folder_that_is_not_a_base_is_left_alone(self):
+        self._auto()
+        os.remove(os.path.join(self.root, config_module.CONFIG_NAME))
+        code, calls, _ = self._run()
+        self.assertEqual((code, calls), (None, []))

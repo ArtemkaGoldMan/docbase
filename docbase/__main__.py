@@ -294,7 +294,17 @@ def main(argv=None):
         return 0
     cfg = config_module.load(args.root)
     messages.use(cfg.interface)
+    if args.command in NEEDS_LIBRARIES:
+        from . import environment
+        code = environment.ensure(
+            cfg, ["-m", "docbase", *(sys.argv[1:] if argv is None else argv)])
+        if code is not None:
+            return code
     return args.func(args, cfg) or 0
+
+
+#: Commands that read the originals, and so need the importers' libraries.
+NEEDS_LIBRARIES = ("sync", "selftest", "doctor")
 
 
 if __name__ == "__main__":

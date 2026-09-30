@@ -90,6 +90,9 @@ class Config:
     #: The language the tool speaks to people in. English unless the config
     #: says otherwise; see messages.py for the ones it knows.
     interface: str = "en"
+    #: Set up the libraries the base needs, in its own .venv, the first time
+    #: a command needs them. See environment.py.
+    auto_install: bool = False
 
     @property
     def language(self):
@@ -198,6 +201,7 @@ def load(root=None):
         languages=tuple(language) or ("en",),
         extra_stopwords=frozenset(raw.get("extra_stopwords", ())),
         interface=str(raw.get("interface", "en")),
+        auto_install=bool(raw.get("auto_install", False)),
         custom_stopwords=tuple(sorted(custom_stop.items())),
         custom_translit=tuple(sorted(custom_translit.items())),
     )

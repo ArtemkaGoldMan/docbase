@@ -151,6 +151,14 @@ UK = {
         "Усе, на що є посилання, вже є в базі.",
     "## Reference graph": "## Граф посилань",
 
+    # -- the base's own environment ------------------------------------------
+    "Setting up the base's own Python environment — once, it takes a minute or two…":
+        "Готую оточення бази — лише першого разу, це займе хвилину-дві…",
+    "Could not set up the environment: {why}\nCheck the internet connection; the "
+    "next message will try again.":
+        "Не вдалося підготувати оточення: {why}\nПеревір інтернет; наступне "
+        "повідомлення спробує ще раз.",
+
     # -- find and map -------------------------------------------------------
     "The base is empty. Drop an exported page into this folder and run: "
     "docbase sync":
