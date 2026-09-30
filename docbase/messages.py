@@ -126,6 +126,10 @@ UK = {
         "посилання (список — kb/graph.md)",
     "Missing Python packages: {names}\nInstall them with:\n  python -m pip install {packages}":
         "Бракує пакетів Python: {names}\nВстанови їх так:\n  python -m pip install {packages}",
+    "There is no base here: no {config} in this folder or above it. Create "
+    "one with: docbase init":
+        "Тут немає бази: ні в цій папці, ні вище немає {config}. Створи її: "
+        "python -m docbase init --language uk",
     "The base was not updated: {why}\nRun `python -m docbase sync` to see what "
     "went wrong.":
         "База не оновилась: {why}\nЗапусти `python -m docbase sync`, щоб побачити, "

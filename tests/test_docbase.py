@@ -3107,6 +3107,23 @@ class TestTheHookIsNeverSilent(BaseCase):
         self.assertIn("pip install pdfplumber", output.getvalue())
 
 
+class TestAFolderThatIsNotABase(unittest.TestCase):
+    """The hook fires in whatever project the agent was opened in. Sync in a
+    folder with no config treated it as a base: it would take the README,
+    and unpack and delete any archive lying there."""
+
+    def test_nothing_is_touched(self):
+        from docbase import __main__ as cli
+        root = tempfile.mkdtemp(prefix="docbase-not-a-base-")
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        for name in ("notes.md", "export.zip"):
+            open(os.path.join(root, name), "w").close()
+        for quiet in (["--quiet"], []):
+            with contextlib.redirect_stdout(io.StringIO()):
+                cli.main(["--root", root, "sync", *quiet])
+        self.assertEqual(sorted(os.listdir(root)), ["export.zip", "notes.md"])
+
+
 class TestReadingFromALine(BaseCase):
     """`sed -n` is not there on every system the skills run on."""
 

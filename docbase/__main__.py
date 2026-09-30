@@ -44,6 +44,17 @@ def cmd_init(args, cfg):
 
 def cmd_sync(args, cfg):
     from . import sync
+    # Sync moves every document it finds in the folder into the base. Run in
+    # a folder that is not one — the hook fires in whatever project the agent
+    # was opened in — it would have taken the README, and unpacked and
+    # deleted any archive lying there.
+    if not os.path.isfile(os.path.join(cfg.layout.root, config_module.CONFIG_NAME)):
+        if not args.quiet:
+            print(say("There is no base here: no {config} in this folder or above "
+                      "it. Create one with: docbase init",
+                      config=config_module.CONFIG_NAME))
+            return 1
+        return 0
     if not args.quiet:
         sync.run(cfg, quiet=False, force=args.force)
         return 0
