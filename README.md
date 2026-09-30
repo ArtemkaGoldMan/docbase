@@ -318,7 +318,7 @@ Measured on 64 questions worded the way people ask, against two public manuals
 |---|---|---|---|
 | first search alone | 28 of 64 | — | — |
 | with the ask-again loop, doubting on score alone (before) | 43 | 21 | 0 |
-| with the ask-again loop, as it is now | **58** | **2** | 4 |
+| with the ask-again loop, as it is now | **59** | **2** | 3 |
 
 The first search alone is right less than half the time. The loop is what
 makes it work, and it only works because the doubt fires on the answers that
@@ -453,7 +453,7 @@ Stated plainly, because knowing where a tool stops is part of using it.
 - **Retrieval is lexical.** A vocabulary mismatch — *"crash on purpose"*
   against *"panic"* — needs a second search. On questions worded the way people
   ask, the first search is right less than half the time; the ask-again loop
-  brings that to 58 of 64. An agent that answers from the first result without
+  brings that to 59 of 64. An agent that answers from the first result without
   reading the doubt will be wrong often.
 - **Stemming is a fixed-length prefix** — six letters for English, five for
   every other language. Crude, and it occasionally conflates unrelated words:

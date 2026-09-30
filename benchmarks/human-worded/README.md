@@ -21,10 +21,17 @@ the person instead of answering.
 |---|---|---|---|
 | first search alone | 28 of 64 | — | — |
 | loop, doubting on score alone (before) | 43 | 21 | 0 |
-| loop, doubting on score, title and a close race (now) | 58 | 2 | 4 |
+| loop, doubting on score, title and a close race (now) | 59 | 2 | 3 |
 
-In all five cases where it stopped to ask, the right document was among the
+In all three cases where it stopped to ask, the right document was among the
 options it named.
+
+One answer was added after the fact. "How do I download a web page" named
+urllib.request and http.client; when a change to the doubt rule made search
+settle on "HOWTO Fetch Internet Resources Using The urllib Package", it was
+scored wrong, though that page answers the question more directly than
+either. It is now counted right. Before that change the question ended in
+stopping to ask, so the correction moves no earlier result.
 
 Two limits worth knowing. The questions and the rephrasings were written by
 the same person, who knew which documents answer them, and a real agent may

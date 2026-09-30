@@ -344,7 +344,8 @@
    "how do I download a web page",
    [
     "urllib-request-extensible-library-for-opening-ur",
-    "http-client-http-protocol-client"
+    "http-client-http-protocol-client",
+    "howto-fetch-internet-resources-using-the-urllib"
    ]
   ],
   [
