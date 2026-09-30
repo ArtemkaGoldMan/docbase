@@ -43,7 +43,14 @@ RE_FENCE = re.compile(r"^\s*(?:```|~~~)")
 
 #: Bumped whenever what the index stores changes shape or meaning, so an old
 #: cache is rebuilt instead of misread. 3: fragments name their true line.
-CACHE_FORMAT = 3
+#: 4: a hyphen separates words.
+CACHE_FORMAT = 4
+
+#: A word. A hyphen joins two of them rather than making one: kept whole,
+#: "інтернет-магазину" was cut to its first five letters and "магазин"
+#: never matched it — nor "bot" in "chat-bot". The apostrophe stays inside
+#: a word, as Ukrainian writes it.
+RE_WORDS = re.compile(r"[\w'’]+", re.UNICODE)
 
 RE_DOC_TITLE = re.compile(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)")
 
@@ -266,7 +273,7 @@ class Index:
         length = self.cfg.search.stem_length
         stops = self.cfg.stopwords
         return {stem(w, length)
-                for w in re.findall(r"[\w'’-]+", text, re.UNICODE)
+                for w in RE_WORDS.findall(text)
                 if w.lower() not in stops and len(w) > 1}
 
     # -- disk cache -------------------------------------------------------
@@ -534,7 +541,7 @@ class Index:
         self.build()
         length, stops, seen, out = (self.cfg.search.stem_length,
                                     self.cfg.stopwords, set(), [])
-        for word in re.findall(r"[\w'’-]+", query, re.UNICODE):
+        for word in RE_WORDS.findall(query):
             if word.lower() in stops or len(word) < 2:
                 continue
             token = stem(word, length)

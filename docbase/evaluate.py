@@ -64,7 +64,7 @@ def generate(cfg=None, count=20):
         # the case does not reduce to an exact-phrase lookup.
         query_stems = [t for _w, t in tokens[1:7]]
         query_words = []
-        for word in re.findall(r"[\w'’-]+", body, re.UNICODE):
+        for word in re.findall(r"[\w'’]+", body, re.UNICODE):
             token = word.lower()[:cfg.search.stem_length]
             if token in query_stems and word.lower() not in query_words:
                 query_words.append(word.lower())

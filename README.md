@@ -316,9 +316,9 @@ Measured on 64 questions worded the way people ask, against two public manuals
 
 | | right | wrong | stopped to ask |
 |---|---|---|---|
-| first search alone | 29 of 64 | — | — |
+| first search alone | 28 of 64 | — | — |
 | with the ask-again loop, doubting on score alone (before) | 43 | 21 | 0 |
-| with the ask-again loop, as it is now | **57** | **2** | 5 |
+| with the ask-again loop, as it is now | **58** | **2** | 4 |
 
 The first search alone is right less than half the time. The loop is what
 makes it work, and it only works because the doubt fires on the answers that
@@ -332,11 +332,11 @@ in plain Ukrainian, scored by the **article** that answers them
 | | right article | right law, another article | wrong law | stopped to ask |
 |---|---|---|---|---|
 | first search alone | 8 of 32 | 12 | 12 | — |
-| with the ask-again loop | **23** | 6 | **1** | 2 |
+| with the ask-again loop | **24** | 5 | **1** | 2 |
 
 Legal Ukrainian is further from how people talk than a programming manual is
 from how programmers do, and it shows: the first search finds the right
-article one time in four. Through the loop it is nearly three in four, and the
+article one time in four. Through the loop it is three in four, and the
 answers from the wrong law drop from twelve to one.
 
 ### `docbase eval`
@@ -453,7 +453,7 @@ Stated plainly, because knowing where a tool stops is part of using it.
 - **Retrieval is lexical.** A vocabulary mismatch — *"crash on purpose"*
   against *"panic"* — needs a second search. On questions worded the way people
   ask, the first search is right less than half the time; the ask-again loop
-  brings that to 57 of 64. An agent that answers from the first result without
+  brings that to 58 of 64. An agent that answers from the first result without
   reading the doubt will be wrong often.
 - **Stemming is a fixed-length prefix** — six letters for English, five for
   every other language. Crude, and it occasionally conflates unrelated words:
@@ -462,7 +462,7 @@ Stated plainly, because knowing where a tool stops is part of using it.
   between four and seven letters did better than another, and the other
   languages keep five without having been checked.
 - **Legal language is hard for it.** On Ukrainian law the first search finds
-  the right article one time in four. The ask-again loop brings that to 23 of
+  the right article one time in four. The ask-again loop brings that to 24 of
   32; an agent that skips it will mostly answer from the wrong article.
 - **Column detection is tuned for wiki exports.** Other page layouts may need
   different `MIN_GUTTER` / `MIN_ROW_GAP` thresholds. Heading detection is not:

@@ -19,9 +19,9 @@ the person instead of answering.
 
 | | right | wrong | stopped to ask |
 |---|---|---|---|
-| first search alone | 29 of 64 | — | — |
+| first search alone | 28 of 64 | — | — |
 | loop, doubting on score alone (before) | 43 | 21 | 0 |
-| loop, doubting on score, title and a close race (now) | 57 | 2 | 5 |
+| loop, doubting on score, title and a close race (now) | 58 | 2 | 4 |
 
 In all five cases where it stopped to ask, the right document was among the
 options it named.
