@@ -21,6 +21,7 @@ import zipfile
 from xml.etree import ElementTree
 
 from .. import frontmatter
+from ..messages import say
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -203,13 +204,13 @@ def build_markdown(path, blocks, links, doc_id, is_internal=lambda url: False):
 
     tail = []
     if internal or external:
-        tail = ["", "---", "", "## Links found in this document", ""]
+        tail = ["", "---", "", say("## Links found in this document"), ""]
         if internal:
-            tail += ["### Internal", "", "| page | id | URL |", "|---|---|---|",
-                     *internal, ""]
+            tail += [say("### Internal"), "", say("| page | id | URL |"),
+                     "|---|---|---|", *internal, ""]
         if external:
-            tail += ["### External", "", "| page | id | URL |", "|---|---|---|",
-                     *external, ""]
+            tail += [say("### External"), "", say("| page | id | URL |"),
+                     "|---|---|---|", *external, ""]
 
     return "\n".join(head) + _join(blocks) + "\n" + "\n".join(tail) + "\n"
 

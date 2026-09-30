@@ -29,6 +29,7 @@ import pdfplumber
 from pypdf import PdfReader
 
 from .. import frontmatter
+from ..messages import say
 from . import images
 
 # pdfminer warns about fonts on every page; the warnings are harmless.
@@ -400,9 +401,11 @@ def convert(pdf_path, assets_dir=None, slug="", url_prefix="kb/assets"):
 
             for path in images.get(page_no + 1, []):
                 blocks.append(
-                    f"![image from page {page_no + 1}]({path})\n"
-                    f"<!-- This image carries content that is not in the text. "
-                    f"Open the file only if the answer is not nearby. -->")
+                    say("![image from page {page}]({path})", page=page_no + 1,
+                        path=path) + "\n"
+                    + say("<!-- This image carries content that is not in the "
+                          "text. Open the file only if the answer is not "
+                          "nearby. -->"))
 
     return demote_repeated(blocks), all_links
 
@@ -459,9 +462,9 @@ def build_markdown(pdf_path, blocks, links, is_internal=lambda url: False):
         row = f"| {page} | `{pid}` | {url} |"
         (internal if is_internal(url) else external).append(row)
 
-    tail = ["", "---", "", "## Links found on this page", "",
-            "### Internal", "", "| page | id | URL |", "|---|---|---|",
-            *internal, "", "### External", "", "| page | id | URL |",
+    tail = ["", "---", "", say("## Links found on this page"), "",
+            say("### Internal"), "", say("| page | id | URL |"), "|---|---|---|",
+            *internal, "", say("### External"), "", say("| page | id | URL |"),
             "|---|---|---|", *external, ""]
 
     return "\n".join(head + [b + "\n" for b in blocks] + tail)

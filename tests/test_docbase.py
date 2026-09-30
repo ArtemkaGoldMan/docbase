@@ -3035,6 +3035,22 @@ class TestSpeakingTheBasesLanguage(BaseCase):
         self.assertIn("База: 1 документ", output.getvalue())
         self.assertIn("додано kb/text/travel-booking.md", output.getvalue())
 
+    def test_what_is_written_into_a_document_is_in_its_language_too(self):
+        """The footer of links is generated, and the map stops at it — in
+        whichever language it was written."""
+        from docbase import messages
+        self._ukrainian()
+        messages.use("uk")
+        self.drop("a.html", page(1, "Travel booking", "Book five days ahead.",
+                                 '<p><a href="https://example.com/rates">rates</a></p>'))
+        self.sync(quiet=True)
+        text = open(os.path.join(self.cfg.layout.path("text"), "travel-booking.md"),
+                    encoding="utf-8").read()
+        self.assertIn("## Посилання зі сторінки", text)
+        self.assertIn("### Зовнішні", text)
+        headings = [h for _n, h in Index(self.cfg).build().headings("travel-booking.md")]
+        self.assertEqual(headings, ["Travel booking"])
+
     def test_an_english_base_is_unchanged(self):
         from docbase import __main__ as cli
         self.drop("a.html", page(1, "Travel booking", "Book five days ahead."))

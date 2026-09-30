@@ -16,6 +16,7 @@ import os
 import re
 
 from .. import frontmatter
+from ..messages import say
 
 RE_FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 RE_MD_LINK = re.compile(r"\[[^\]]*\]\((https?://[^)\s]+)\)")
@@ -230,12 +231,12 @@ def build_markdown(path, body, links, doc_id, is_internal=lambda url: False):
 
     tail = []
     if internal or external:
-        tail = ["", "---", "", "## Links found in this document", ""]
+        tail = ["", "---", "", say("## Links found in this document"), ""]
         if internal:
-            tail += ["### Internal", "", "| page | id | URL |", "|---|---|---|",
-                     *internal, ""]
+            tail += [say("### Internal"), "", say("| page | id | URL |"),
+                     "|---|---|---|", *internal, ""]
         if external:
-            tail += ["### External", "", "| page | id | URL |", "|---|---|---|",
-                     *external, ""]
+            tail += [say("### External"), "", say("| page | id | URL |"),
+                     "|---|---|---|", *external, ""]
 
     return "\n".join(head) + body + "\n".join(tail) + "\n"

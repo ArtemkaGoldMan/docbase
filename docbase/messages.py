@@ -44,6 +44,13 @@ def plural(language, number, forms):
     return forms[0] if n == 1 else forms[1] if len(forms) > 1 else forms[0]
 
 
+def every(message):
+    """``message`` in every language there is, English first — for reading
+    back what the tool itself once wrote, in whichever language it wrote it."""
+    return [message] + [catalog[message] for catalog in CATALOGS.values()
+                        if message in catalog]
+
+
 def say(message, **values):
     """``message`` in the current language, with ``values`` filled in."""
     current = _state["language"]
@@ -55,6 +62,19 @@ def say(message, **values):
 
 
 UK = {
+    # -- written into converted documents -----------------------------------
+    "## Links found on this page": "## Посилання зі сторінки",
+    "## Links found in this document": "## Посилання з документа",
+    "### Internal": "### Внутрішні",
+    "### External": "### Зовнішні",
+    "| page | id | URL |": "| сторінка | id | URL |",
+    "![image from page {page}]({path})": "![зображення зі сторінки {page}]({path})",
+    "<!-- This image carries content that is not in the text. Open the file "
+    "only if the answer is not nearby. -->":
+        "<!-- Вмісту цього зображення в тексті немає. Відкривай файл, лише якщо "
+        "відповіді немає поруч. -->",
+    "image from this page": "зображення з цієї сторінки",
+
     # -- sync -------------------------------------------------------------
     "{name} -> {target}": "«{name}» → {target}",
     " (replaces the previous export)": " (замінює попередній експорт)",

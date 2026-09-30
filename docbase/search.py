@@ -26,12 +26,15 @@ import os
 import re
 
 from . import config as config_module
-from .messages import say
+from .messages import every, say
 
 RE_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 #: The links table the importer appends. It is generated, so it is not a
 #: section of the document and does not belong in its outline.
-RE_GENERATED_TAIL = re.compile(r"Links found (on this page|in this document)$")
+RE_GENERATED_TAIL = re.compile("(?:%s)$" % "|".join(
+    re.escape(title[3:]) for message in ("## Links found on this page",
+                                          "## Links found in this document")
+    for title in every(message)))
 
 #: A fenced code block. Its contents are a sample, not prose: a shell comment
 #: opens with the same character a markdown heading does, and a documentation

@@ -23,7 +23,7 @@ from . import frontmatter
 from . import config as config_module
 from . import languages as languages_module
 from . import link as link_module
-from .messages import say
+from .messages import every, say
 
 #: How many past versions of a document to keep. Diffs are small, but an
 #: unbounded pile of them is noise nobody ever reads.
@@ -309,13 +309,19 @@ def run_on_share(markdown):
 def body_length(markdown):
     """Characters of prose: no frontmatter, no headings, no links table."""
     text = re.sub(r"\A---\n.*?\n---\n", "", markdown, flags=re.S)
-    text = re.split(r"\n-{3,}\s*\n+#+ Links found", text)[0]
+    text = RE_GENERATED_TAIL.split(text)[0]
     text = re.sub(r"^#.*$", "", text, flags=re.M)
     return len(text.strip())
 
 
 #: A picture the importer kept. A page whose subject is a diagram carries one
 #: line of prose and the diagram, and refusing it would throw the diagram away.
+#: The links table an importer appends, in any language it was written in.
+RE_GENERATED_TAIL = re.compile(r"\n-{3,}\s*\n+#+ (?:%s)" % "|".join(
+    re.escape(title[3:]) for message in ("## Links found on this page",
+                                          "## Links found in this document")
+    for title in every(message)))
+
 RE_ASSET_MARKER = re.compile(r"!\[[^\]]*\]\([^)]*assets/")
 
 

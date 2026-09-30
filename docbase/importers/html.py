@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 from bs4.element import PreformattedString
 
 from .. import frontmatter
+from ..messages import say
 from . import images
 
 RE_CONFLUENCE_PAGE = re.compile(r"(?:/pages/(\d+)/|[?&]pageId=(\d+))")
@@ -109,7 +110,7 @@ def save_attachments(soup, attached, out_dir, slug, url_prefix, min_bytes,
                 handle.write(data)
             written[key] = f"{url_prefix}/{slug}/{name}"
         alt = (tag.get("alt") or "").strip()
-        tag.replace_with(f"![{alt or 'image from this page'}]({written[key]})")
+        tag.replace_with(f"![{alt or say('image from this page')}]({written[key]})")
     return len(written)
 
 
@@ -347,9 +348,9 @@ def build_markdown(path, blocks, links, page_id, is_internal=lambda url: False):
         row = f"| — | `{pid}` | {url} |"
         (internal if is_internal(url) else external).append(row)
 
-    tail = ["", "---", "", "## Links found on this page", "",
-            "### Internal", "", "| page | id | URL |", "|---|---|---|",
-            *internal, "", "### External", "", "| page | id | URL |",
+    tail = ["", "---", "", say("## Links found on this page"), "",
+            say("### Internal"), "", say("| page | id | URL |"), "|---|---|---|",
+            *internal, "", say("### External"), "", say("| page | id | URL |"),
             "|---|---|---|", *external, ""]
     return "\n".join(head + blocks + tail)
 
