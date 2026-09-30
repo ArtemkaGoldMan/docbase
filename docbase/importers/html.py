@@ -193,16 +193,46 @@ def emit_list(node, blocks, depth=0):
             emit_list(sub, blocks, depth + 1 if text else depth)
 
 
+#: Elements that live inside a line of text rather than making a block.
+INLINE = {"strong", "b", "em", "i", "a", "code", "tt", "u", "s", "strike",
+          "del", "ins", "sub", "sup", "font", "mark", "small", "big", "label",
+          "abbr", "time", "br", "img", "q", "cite", "kbd", "var", "samp"}
+BLOCKS = ["p", "div", "table", "ul", "ol", "pre", "h1", "h2", "h3", "h4",
+          "h5", "h6", "section", "article", "blockquote"]
+
+
+def is_inline(child):
+    name = getattr(child, "name", None)
+    if name is None:
+        return True
+    if name == "span":
+        return child.find(BLOCKS) is None
+    return name in INLINE
+
+
 def walk(node, blocks, depth=0):
+    # Text set straight inside a container, not in a paragraph: a wiki macro
+    # that lays out a ready-to-copy message does exactly that. Taken one text
+    # node at a time, the bold and italic parts between them — the message
+    # itself — were dropped as "other tags", and a page's worth of message
+    # templates vanished without a word.
+    run = []
+
+    def flush():
+        text = re.sub(r"\s+", " ", "".join(inline_child(c) for c in run)).strip()
+        run.clear()
+        if text:
+            blocks.append(frontmatter.structural_heading(text) or text)
+
     for child in node.children:
         if isinstance(child, PreformattedString):
             continue             # a comment is not page text, however long
-        name = getattr(child, "name", None)
-        if name is None:
-            text = re.sub(r"\s+", " ", str(child)).strip()
-            if text:
-                blocks.append(frontmatter.structural_heading(text) or text)
-        elif name in ("h1", "h2", "h3", "h4", "h5", "h6"):
+        if is_inline(child):
+            run.append(child)
+            continue
+        flush()
+        name = child.name
+        if name in ("h1", "h2", "h3", "h4", "h5", "h6"):
             level = min(int(name[1]), 4)
             text = inline(child).strip()
             if text:
@@ -222,6 +252,7 @@ def walk(node, blocks, depth=0):
         elif name in ("div", "section", "article", "td", "span", "li", "blockquote", "body"):
             walk(child, blocks, depth + (name == "li"))
         # Everything else is deliberately ignored.
+    flush()
 
 
 def convert(path, assets_dir=None, slug="", url_prefix="kb/assets",

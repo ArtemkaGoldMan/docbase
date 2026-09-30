@@ -2189,6 +2189,36 @@ class TestExtractedImageNames(BaseCase):
         self.assertEqual(image_extension(b"\x01\x02\x03\x04 whatever"), "")
 
 
+class TestTextSetStraightInAContainer(BaseCase):
+    """A wiki macro that lays out a ready-to-copy message puts its text
+    straight inside a div, bold and italic included, with no paragraph around
+    it. Only bare text nodes were kept; the formatted parts — the message
+    itself — were dropped as unknown tags, and every template on a page
+    disappeared without a word."""
+
+    MACRO = ('<div class="copy-text-macro"><strong>Reply</strong> '
+             '<em>Your parcel leaves the warehouse tomorrow morning.</em> '
+             'Tracking: <a href="https://example.com/track">link</a></div>')
+
+    def _text(self):
+        self.drop("page.html", page(1, "Parcel replies", "Use the reply below.",
+                                    self.MACRO))
+        self.sync(quiet=True)
+        return open(os.path.join(self.cfg.layout.path("text"), "parcel-replies.md"),
+                    encoding="utf-8").read()
+
+    def test_the_formatted_message_is_kept(self):
+        text = self._text()
+        self.assertIn("*Your parcel leaves the warehouse tomorrow morning.*", text)
+        self.assertIn("**Reply**", text)
+        self.assertIn("[link](https://example.com/track)", text)
+
+    def test_it_stays_one_line(self):
+        line = next(l for l in self._text().splitlines() if "parcel leaves" in l)
+        self.assertTrue(line.startswith("**Reply** *Your parcel"), line)
+        self.assertIn("Tracking:", line)
+
+
 class TestPicturesThatTravelWithThePage(BaseCase):
     """A wiki's "Export to Word" is one file holding the page and its pictures.
 
