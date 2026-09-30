@@ -3174,7 +3174,8 @@ class TestSpeakingTheBasesLanguage(BaseCase):
         with contextlib.redirect_stdout(output):
             cli.main(["--root", self.root, "sync"])
         self.assertIn("База: 1 документ", output.getvalue())
-        self.assertIn("додано kb/text/travel-booking.md", output.getvalue())
+        self.assertIn("додано " + os.path.join("kb", "text", "travel-booking.md"),
+                      output.getvalue())
 
     def test_what_is_written_into_a_document_is_in_its_language_too(self):
         """The footer of links is generated, and the map stops at it — in
