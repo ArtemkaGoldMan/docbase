@@ -57,6 +57,13 @@ class Search:
     #: the question does not tell them apart.
     close_race: float = 1.15
     heading_weight: float = 2.0
+    #: Count the document's title as part of every section's heading, not
+    #: only the opening one. It depends on the base: where each document is
+    #: one topic and its title names it, the title is what tells the answers
+    #: apart — on one such base, working questions found their answer by
+    #: search markedly more often. Where documents are
+    #: chapters of one manual, it did worse, so it is off unless set.
+    title_in_sections: bool = False
     density_weight: float = 0.4
 
 

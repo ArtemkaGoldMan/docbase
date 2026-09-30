@@ -1875,6 +1875,36 @@ class TestVerifyCardsAsTheyAreWritten(TestVerify):
         self.assertIn("1450", output)
 
 
+class TestTheTitleInEverySection(BaseCase):
+    """Where each document is one topic, its title is what tells two
+    identical rules apart — "returned early free of charge" is in both the
+    laptop and the camera page. Only the opening section carried the title, so a
+    question naming the topic could land in the wrong document."""
+
+    def _base(self):
+        rule = "A loan may be returned early free of charge before noon."
+        self.drop("laptops.md", f"# Laptop loans\n\n## Before you start\n\n"
+                  f"Choose dates first.\n\n## Returns\n\n{rule}\n")
+        self.drop("cameras.md", f"# Camera loans\n\n## Before you start\n\n"
+                  f"Choose dates first.\n\n## Returns\n\n{rule}\n")
+        self.sync(quiet=True)
+
+    def _top(self):
+        from dataclasses import replace
+        return Index(self.cfg).build().search("laptop loan returned early free")[0][1]
+
+    def test_it_is_off_unless_asked_for(self):
+        self._base()
+        self.assertEqual(self._top(), "camera-loans.md")
+
+    def test_asked_for_it_names_the_right_document(self):
+        from dataclasses import replace
+        self._base()
+        self.cfg = replace(self.cfg, search=replace(self.cfg.search,
+                                                    title_in_sections=True))
+        self.assertEqual(self._top(), "laptop-loans.md")
+
+
 class TestVerifyOnRealCards(BaseCase):
     """What the check was worth when a real card was put through it.
 
@@ -3215,8 +3245,10 @@ class TestSelfTest(BaseCase):
     there, and working questions find their answer in what `find` shows or
     in a card."""
 
-    MACRO = ('<div class="copy-text"><em>Your parcel leaves the warehouse '
-             'tomorrow morning <img alt=":truck:" src="x.png"> as agreed.</em></div>')
+    MACRO = ('<div class="copy-panel"><div class="copy-controls"><button>Copy'
+             '</button><button>Plain</button></div><div class="copy-text"><em>Your '
+             'parcel leaves the warehouse tomorrow morning <img alt=":truck:" '
+             'src="x.png"> as agreed.</em></div></div>')
 
     def _write(self, name, text):
         folder = os.path.join(self.root, "kb", "tests")
@@ -3248,6 +3280,17 @@ class TestSelfTest(BaseCase):
         lost = selftest.check_integrity(self.cfg)["parcel-replies.md"][2]
         self.assertEqual(len(lost), 1)
         self.assertIn("leaves the warehouse", lost[0])
+
+    def test_a_macros_buttons_are_not_its_text(self):
+        """A copy macro carries buttons — "Copy", "Plain".
+        Read as part of the message, every short message looked lost."""
+        from docbase import selftest
+        box = ('<div class="copy-panel"><div class="copy-controls"><button>Copy'
+               '</button><button>Plain</button></div><div class="copy-text">'
+               '<em>On it, back soon</em></div></div>')
+        self.drop("a.html", page(1, "Parcel replies", "Use the reply below.", box))
+        self.sync(quiet=True)
+        self.assertEqual(selftest.check_integrity(self.cfg)["parcel-replies.md"][2], [])
 
     def test_a_link_inside_a_passage_is_not_a_loss(self):
         from docbase import selftest

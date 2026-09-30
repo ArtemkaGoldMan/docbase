@@ -84,8 +84,14 @@ def _html_passages(path):
     for image in soup.find_all("img"):
         alt = (image.get("alt") or "").strip()
         image.replace_with(f" ({alt}) " if alt else " ")
+    # Buttons are the page's controls — a macro's "Copy" and "Plain" —
+    # not its text, and the importer rightly leaves them out.
+    for control in soup.find_all(["button", "script", "style"]):
+        control.decompose()
     found = []
-    for node in soup.find_all(["em", "i"]) + soup.select('[class*="copy"]'):
+    boxes = [node for node in soup.select('[class*="copy"]')
+             if not node.select('[class*="copy"]')]      # the innermost only
+    for node in soup.find_all(["em", "i"]) + boxes:
         found.append(node.get_text(" ", strip=True))
     return found
 

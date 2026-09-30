@@ -324,7 +324,8 @@ class Index:
         """
         settings = self.cfg.search
         return [CACHE_FORMAT, settings.chunk_chars, settings.chunk_overlap,
-                settings.stem_length, sorted(self.cfg.languages)]
+                settings.stem_length, sorted(self.cfg.languages),
+                settings.title_in_sections]
 
     def build(self):
         files = self.files()
@@ -344,6 +345,8 @@ class Index:
             for seq, (line_no, heading, body) in enumerate(parts):
                 body_stems = self.stems(body)
                 head_stems = self.stems(heading)
+                if settings.title_in_sections:
+                    head_stems |= titles[name]
                 chunks.append((name, line_no, heading, seq, body_stems, head_stems))
                 for token in body_stems | head_stems:
                     frequency[token] = frequency.get(token, 0) + 1
