@@ -1216,6 +1216,21 @@ class TestRealDocumentShapes(BaseCase):
         without = '---\nsource_id: "x"\n---\n\n# Actual Heading\n'
         self.assertEqual(document_title(without, "file.pdf"), "Actual Heading")
 
+    def test_a_wikis_space_and_site_are_not_part_of_the_name(self):
+        """A wiki titles its export "Page - Space - Site". Every file came out
+        named after the page plus half a word of the site's, and nothing that
+        referred to the page by its old name could find it."""
+        from docbase.sync import document_title
+        markdown = ('---\ntitle: "Expense reports. - Finance - Example Wiki"\n---\n\n'
+                    "# Expense reports.\n")
+        self.assertEqual(document_title(markdown, "file.pdf"), "Expense reports.")
+
+    def test_a_document_that_opens_with_a_numbered_part_is_named_by_its_file(self):
+        from docbase.sync import document_title
+        for opening in ("# 1. Scope", "# 2.3 Definitions", "# Article 1"):
+            self.assertEqual(document_title(f"{opening}\n\nText.\n", "travel-policy.docx"),
+                             "travel-policy", opening)
+
     def test_eval_markers_survive_markdown_emphasis(self):
         """Markers come from fragments already stripped of emphasis, so a
         literal search against the raw file silently dropped every passage

@@ -324,6 +324,9 @@ def nothing_converted(markdown, source_bytes):
             "error page, a scan without a text layer, or an unreadable format")
 
 
+RE_NUMBERED_PART = re.compile(r"^\d+(?:\.\d+)*\.?\s")
+
+
 def document_title(markdown, fallback_name):
     """What to name the file after.
 
@@ -331,14 +334,29 @@ def document_title(markdown, fallback_name):
     withdrawal banner, or split the real title across several lines that each
     become a heading of their own.
     """
-    declared = re.search(r'^title:\s*"(.+?)"\s*$', markdown, re.M)
-    if declared and declared.group(1).strip():
-        return declared.group(1).strip()
     from .search import outside_fences
+    first = ""
     for _number, line in outside_fences(markdown.splitlines()):
         heading = re.match(r"^#\s+(?:\[)?(.+?)(?:\]\(|$)", line)
         if heading:
-            return heading.group(1)
+            first = heading.group(1).replace("**", "").strip()
+            break
+
+    declared = re.search(r'^title:\s*"(.+?)"\s*$', markdown, re.M)
+    if declared and declared.group(1).strip():
+        title = declared.group(1).strip()
+        # A wiki titles its export "Page - Space - Site". The page's own
+        # heading is the page's name; the rest made every file name end in
+        # half a word of the site's.
+        if first and title.startswith(first) and \
+                title[len(first):].lstrip().startswith(("-", "–", "|")):
+            return first
+        return title
+    # A document that opens with "1. Scope" or "Article 1" is named after a
+    # part of itself; its file name says more.
+    if first and not RE_NUMBERED_PART.match(first) \
+            and not frontmatter.structural_heading(first):
+        return first
     return os.path.splitext(fallback_name)[0]
 
 
